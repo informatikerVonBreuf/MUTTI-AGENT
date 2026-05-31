@@ -12,8 +12,21 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+import logging
 import os
+import shutil
 import sys
+
+logging.getLogger("langchain_google_genai._function_utils").setLevel(logging.ERROR)
+
+# Use the Windows certificate store when available, which helps behind
+# enterprise TLS inspection/proxies.
+try:
+    import truststore
+
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
 
 # Set UTF-8 encoding for Windows console
 if sys.platform == "win32":
@@ -21,7 +34,8 @@ if sys.platform == "win32":
 
 from dotenv import load_dotenv
 
-load_dotenv()
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 
 from langchain_core.messages import HumanMessage
 from langchain.agents import create_agent
@@ -29,8 +43,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 import asyncio
 from langchain_mcp_adapters.client import MultiServerMCPClient
-
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
 
 
 system_prompt = """
@@ -59,12 +71,36 @@ system_prompt = """
                 """
 
 
+def get_llm():
+    return ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+
+
+def get_uvx_command():
+    uvx_command = shutil.which("uvx")
+    if uvx_command:
+        return uvx_command
+
+    scripts_dir = "Scripts" if sys.platform == "win32" else "bin"
+    executable_name = "uvx.exe" if sys.platform == "win32" else "uvx"
+    uvx_path = os.path.join(sys.prefix, scripts_dir, executable_name)
+
+    if os.path.exists(uvx_path):
+        return uvx_path
+
+    return "uvx"
+
+
 async def get_tools():
     client = MultiServerMCPClient(
         {
             "yahoo-finance": {
-                "command": "uvx",
-                "args": ["yahoo-finance-mcp-server"],
+                "command": get_uvx_command(),
+                "args": [
+                    "--system-certs",
+                    "--with",
+                    "python-certifi-win32",
+                    "yahoo-finance-mcp-server",
+                ],
                 "transport": "stdio",
             }
         }
@@ -72,8 +108,8 @@ async def get_tools():
 
     tools = await client.get_tools()
 
-    # print(f"Loaded {len(tools)} tools")
-    # print(f"Tools available: {[tool.name for tool in tools]}")
+    print(f"Loaded {len(tools)} tools")
+    print(f"Tools available: {[tool.name for tool in tools]}")
 
     return tools
 
@@ -81,7 +117,7 @@ async def get_tools():
 async def finance_research(query):
     tools = await get_tools()
 
-    agent = create_agent(model=llm, tools=tools, system_prompt=system_prompt)
+    agent = create_agent(model=get_llm(), tools=tools, system_prompt=system_prompt)
 
     result = await agent.ainvoke({"messages": [HumanMessage(query)]})
 

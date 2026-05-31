@@ -2,6 +2,8 @@
 python-dotenv
 pydantic
 typing-extensions
+truststore
+uv
 
 # LangChain ecosystem
 langchain
