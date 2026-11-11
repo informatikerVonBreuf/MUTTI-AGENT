@@ -1,0 +1,12 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 390 228" fill="none">
+  <g stroke="#C5BEAA" stroke-width=".7"><path d="M16 22h358M16 196h358M32 12v194M358 12v194"/><path d="M25 22h14M32 15v14M351 196h14M358 189v14" stroke="#173D36"/></g>
+  <g stroke="#173D36" stroke-width="1.2"><rect x="48" y="42" width="78" height="108" rx="1" fill="#F8F3E7"/><path d="M57 55h43M57 61h57M57 67h57M57 73h38M57 88h57M57 94h57M57 100h49M57 106h57M57 112h35M57 127h57M57 133h44" opacity=".5" stroke-width=".7"/>
+  <rect x="94" y="61" width="78" height="108" rx="1" fill="#E7E4CB"/><path d="M105 76h49M105 85h55M105 96h55M105 107h55M105 118h55M105 129h55M105 140h55M117 85v55M137 85v55" opacity=".45" stroke-width=".7"/>
+  <rect x="141" y="81" width="78" height="108" rx="1" fill="#F8F3E7"/><path d="M151 94h44M151 168h57M151 106v62M153 153l12-14 12 6 13-29 14 9" stroke-width=".8"/><path d="M153 160l12-7 12 4 13-9 14-13" stroke="#A34630" stroke-width="1.3"/>
+  <path d="M219 135h17c17 0 17-49 40-49h19M172 60h55c17 0 16 26 35 26h33M126 42h81c35 0 27 44 69 44h19" stroke-dasharray="2 4" opacity=".65"/>
+  <circle cx="309" cy="86" r="22" fill="#173D36"/><path d="M300 86h18M309 77v18" stroke="#F2EBDD" stroke-width="1"/><circle cx="309" cy="86" r="6" stroke="#CBCB82"/>
+  <path d="M309 108v28M302 129l7 7 7-7"/><rect x="279" y="143" width="59" height="38" fill="#CBCB82"/><path d="M290 154h37M290 161h37M290 168h23" stroke-width=".8"/>
+  <path d="M228 169h20M238 159v20" stroke="#A34630"/>
+  </g>
+  <g font-family="monospace" font-size="6.4" letter-spacing="1" fill="#173D36"><text x="48" y="34">01 / TEXTE</text><text x="98" y="181">02 / TABLEAUX</text><text x="147" y="203">03 / FIGURES</text><text x="278" y="195">SYNTHÈSE</text><text x="288" y="52">LECTURES</text></g><circle cx="356" cy="22" r="3" fill="#A34630"/>
+</svg>
