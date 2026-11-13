@@ -1,5 +1,7 @@
-﻿import React from 'react';
+import React from 'react';
 import {createRoot} from 'react-dom/client';
-import App from './App.jsx';
+import AuthGateway from './AuthGateway.jsx';
 import './app.css';
-createRoot(document.getElementById('root')).render(<React.StrictMode><App/></React.StrictMode>);
+import './immersive.css';
+import './auth.css';
+createRoot(document.getElementById('root')).render(<React.StrictMode><AuthGateway/></React.StrictMode>);

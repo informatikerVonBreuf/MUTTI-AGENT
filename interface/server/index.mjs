@@ -1,11 +1,19 @@
-﻿import {createServer} from 'node:http';
+import {createServer} from 'node:http';
 import {promises as fs} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createAppStore} from './app-store.mjs';
+import {authStatus,unavailableAuthResponse} from './auth-contract.mjs';
+import {loadBackendConfig} from './backend-config.mjs';
+import {createAIConnector} from './ai-connector.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const development=process.argv.includes('--dev');
-const store=await createAppStore({projectRoot:path.resolve(root,'..'),storageDirectory:process.env.FOLIO_DATA_DIR||path.join(root,'.runtime')});
+const projectRoot=path.resolve(root,'..'),storageDirectory=process.env.FOLIO_DATA_DIR||path.join(root,'.runtime');
+let connector;
+const store=await createAppStore({projectRoot,storageDirectory,backendState:()=>connector?.status()||{connected:false,citationsEnabled:false}});
+const config=await loadBackendConfig({projectRoot,storageDirectory});
+connector=await createAIConnector({store,config});
+void connector.probe();
 const json=(response,status,data)=>{response.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});response.end(JSON.stringify(data));};
 async function body(request){let size=0;const chunks=[];for await(const chunk of request){size+=chunk.length;if(size>65536){const error=new Error('La demande est trop volumineuse.');error.status=413;throw error;}chunks.push(chunk);}let data;try{data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{const error=new Error('Données JSON invalides.');error.status=400;throw error;}if(!data||Array.isArray(data)||typeof data!=='object'){const error=new Error('Un objet JSON est requis.');error.status=400;throw error;}return data;}
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.woff2':'font/woff2'};
@@ -16,7 +24,12 @@ const server=createServer(async(request,response)=>{
     if(!['127.0.0.1','localhost','[::1]'].includes(url.hostname))return json(response,403,{error:'Hôte non autorisé.'});
     if(url.pathname.startsWith('/api/')){
       if(request.headers.origin&&request.headers.origin!==url.origin)return json(response,403,{error:'Origine non autorisée.'});
-      if(request.method==='GET'&&url.pathname==='/api/health')return json(response,200,{status:'ok',version:'sessions-v1',backendConnected:false});
+      if(request.method==='GET'&&url.pathname==='/api/health')return json(response,200,{status:'ok',version:'sessions-v4',backendConnected:connector.status().connected});
+      if(request.method==='GET'&&url.pathname==='/api/auth/status')return json(response,200,authStatus());
+      if(request.method==='GET'&&url.pathname==='/api/auth/session')return json(response,200,{authenticated:false,user:null});
+      if(request.method==='POST'&&['/api/auth/login','/api/auth/recovery'].includes(url.pathname)){request.resume();return json(response,503,unavailableAuthResponse());}
+      if(request.method==='GET'&&url.pathname==='/api/backend/status')return json(response,200,connector.status());
+      if(request.method==='POST'&&url.pathname==='/api/backend/probe')return json(response,200,await connector.probe());
       if(request.method==='GET'&&url.pathname==='/api/workspace')return json(response,200,store.overview());
       const documentMatch=url.pathname.match(/^\/api\/documents\/([a-f0-9]{18})(?:\/(pdf))?$/);
       if(documentMatch&&request.method==='GET'){
@@ -33,13 +46,18 @@ const server=createServer(async(request,response)=>{
         return json(response,200,{id:doc.id,name:doc.name,company:doc.company,hasPdf:Boolean(doc.pdf),hasText:Boolean(doc.text),content});
       }
       if(request.method==='POST'&&url.pathname==='/api/threads')return json(response,201,await store.createThread(await body(request)));
-      const match=url.pathname.match(/^\/api\/threads\/([a-zA-Z0-9-]+)(?:\/(messages|memory|context)(?:\/([a-zA-Z0-9-]+))?)?$/);
+      const match=url.pathname.match(/^\/api\/threads\/([a-zA-Z0-9-]+)(?:\/(messages|memory|context|plan|rag-context|run)(?:\/([a-zA-Z0-9-]+))?)?$/);
       if(match){
         const [,id,action,itemId]=match;
         if(!action&&request.method==='GET')return json(response,200,store.getThread(id));
         if(!action&&request.method==='PATCH')return json(response,200,await store.updateThread(id,await body(request)));
-        if(!action&&request.method==='DELETE')return json(response,200,await store.deleteThread(id));
+        if(!action&&request.method==='DELETE'){await connector.cancel(id);return json(response,200,await store.deleteThread(id));}
+        if(action==='run'&&!itemId&&request.method==='POST')return json(response,202,await connector.start(id,await body(request)));
+        if(action==='run'&&!itemId&&request.method==='GET')return json(response,200,connector.latest(id));
+        if(action==='run'&&!itemId&&request.method==='DELETE')return json(response,200,await connector.cancel(id));
         if(action==='messages'&&!itemId&&request.method==='POST')return json(response,201,await store.addMessage(id,(await body(request)).content));
+        if(action==='plan'&&!itemId&&request.method==='GET')return json(response,200,store.plan(id));
+        if(action==='rag-context'&&!itemId&&request.method==='POST')return json(response,200,await store.prepareRag(id,(await body(request)).question));
         if(action==='context'&&!itemId&&request.method==='GET')return json(response,200,store.context(id));
         if(action==='memory'&&!itemId&&request.method==='POST')return json(response,201,await store.addMemory(id,await body(request)));
         if(action==='memory'&&itemId&&request.method==='PATCH')return json(response,200,await store.updateMemory(id,itemId,await body(request)));
@@ -62,5 +80,5 @@ const port=Number(process.env.PORT||5173);
 server.on('error',error=>{console.error(error.code==='EADDRINUSE'?`Le port ${port} est déjà utilisé. Ouvrez http://127.0.0.1:${port} ou choisissez PORT.`:error.message);process.exitCode=1;});
 server.listen(port,'127.0.0.1',()=>console.log(`\n  Folio — http://127.0.0.1:${server.address().port}\n  Bibliothèque · Conversations · Résumés thématiques\n`));
 let closing=false;
-async function close(){if(closing)return;closing=true;await store.close();await vite?.close();server.close(()=>process.exit(0));server.closeIdleConnections();}
+async function close(){if(closing)return;closing=true;await connector.close();await store.close();await vite?.close();server.close(()=>process.exit(0));server.closeIdleConnections();}
 process.on('SIGINT',close);process.on('SIGTERM',close);

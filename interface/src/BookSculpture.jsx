@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import './book-sculpture.css';
 
 function PageDrawing({ variant = 'text' }) {
@@ -16,7 +16,7 @@ export default function BookSculpture() {
   const autoOpen = useRef(null);
   useEffect(() => {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
-    if (reduced.matches) { setOpen(true); return; }
+    if (reduced.matches || document.documentElement.dataset.motion === 'paused') { setOpen(true); return; }
     const observer = new IntersectionObserver(entries => {
       if (entries.some(entry => entry.isIntersecting)) {
         autoOpen.current = window.setTimeout(() => setOpen(true), 700);
@@ -28,7 +28,7 @@ export default function BookSculpture() {
   }, []);
   function toggle() { window.clearTimeout(autoOpen.current); setOpen(value => !value); }
   function tilt(event) {
-    if (event.pointerType !== 'mouse' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (document.documentElement.dataset.motion === 'paused' || event.pointerType !== 'mouse' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const rect = event.currentTarget.getBoundingClientRect();
     event.currentTarget.style.setProperty('--look-x', `${((event.clientX - rect.left) / rect.width - 0.5) * 9}deg`);
     event.currentTarget.style.setProperty('--look-y', `${((event.clientY - rect.top) / rect.height - 0.5) * -6}deg`);

@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import React from 'react';
@@ -16,5 +16,33 @@ try{
   const connected=renderToStaticMarkup(React.createElement(ChatPanel,{...props,backend:{connected:true}}));
   assert.ok(connected.includes('CITATION_RESERVEE_AU_BACKEND'));
   assert.ok(disconnected.includes('Supprimer cette conversation')&&disconnected.includes('Importance de la conversation'));
+  const reconnect=renderToStaticMarkup(React.createElement(ChatPanel,{...props,onCheckBackend:()=>{},backend:{connected:false,configured:true,state:'unavailable'}}));
+  assert.ok(reconnect.includes('Vérifier la connexion'));
+  const {default:RunActivity}=await vite.ssrLoadModule('/src/RunActivity.jsx');
+  const measured=renderToStaticMarkup(React.createElement(RunActivity,{run:{kind:'chat',status:'completed',startedAt:'2026-11-13T10:00:00Z',finishedAt:'2026-11-13T10:00:08.500Z',verifiedClaimCount:2}}));
+  assert.ok(measured.includes('Durée totale')&&measured.includes('8,5'));
+  const {HomePage,PageScenery}=await vite.ssrLoadModule('/src/ImmersivePages.jsx');
+  const {default:AgentTransparency}=await vite.ssrLoadModule('/src/AgentTransparency.jsx');
+  const {buildAgentPlan}=await import('../server/agent-policies.mjs');
+  const home=renderToStaticMarkup(React.createElement(HomePage,{workspace:{documents:[],companies:[]}}));
+  assert.ok(home.includes('book-stage')&&home.includes('Ouvrir le livre en trois dimensions'));
+  for(const page of ['home','library','chat','themes']){const art=renderToStaticMarkup(React.createElement(PageScenery,{page}));assert.ok(art.includes('scenery-'+page)&&art.includes('aria-hidden="true"'));}
+  const transparent=renderToStaticMarkup(React.createElement(AgentTransparency,{plan:buildAgentPlan({theme:'Risks'})}));
+  assert.ok(transparent.includes('non exécuté')&&transparent.includes('Aucun événement'));
+  const pdf=renderToStaticMarkup(React.createElement(ChatPanel,{...props,thread:{...thread,documentIds:['pdf1']},documents:[{id:'pdf1',name:'Meta 2024'}],backend:{connected:false}}));
+  assert.ok(pdf.includes('Recherche ciblée')&&pdf.includes('Utiliser tout le corpus'));
+  const {default:AuthScreen}=await vite.ssrLoadModule('/src/AuthScreen.jsx');
+  const authProps={statusState:'ready',canPreview:true,onPreview:()=>{},onModeChange:()=>{},onSignIn:async()=>{},onRecover:async()=>{},onRetry:()=>{}};
+  const login=renderToStaticMarkup(React.createElement(AuthScreen,authProps));
+  assert.ok(login.includes('id="auth-email"')&&login.includes('type="password"')&&login.includes('autoComplete="current-password"'));
+  assert.ok(login.includes('auth-title')&&login.includes('human-reading-book')&&login.includes('Aucun identifiant'));
+  assert.ok(login.includes('human-reader-css-book')&&login.includes('automatiquement en trois dimensions'));
+  assert.ok(login.includes('Parcourir l’aperçu local')&&login.includes('Afficher le mot de passe'));
+  const recovery=renderToStaticMarkup(React.createElement(AuthScreen,{...authProps,mode:'recovery'}));
+  assert.ok(recovery.includes('Demander un lien de récupération')&&!recovery.includes('id="auth-password"'));
+  const loading=renderToStaticMarkup(React.createElement(AuthScreen,{...authProps,statusState:'loading',canPreview:false}));
+  assert.ok(loading.includes('disabled=""')&&!loading.includes('auth-preview'));
+  const unavailable=renderToStaticMarkup(React.createElement(AuthScreen,{...authProps,statusState:'error',canPreview:false}));
+  assert.ok(unavailable.includes('Réessayer')&&!unavailable.includes('auth-preview'));
   console.log('Rendu React vérifié : citations masquées sans backend, commandes de mémoire, importance et suppression présentes.');
 }finally{await vite.close();}

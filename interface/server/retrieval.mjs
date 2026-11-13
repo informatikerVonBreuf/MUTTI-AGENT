@@ -1,4 +1,4 @@
-﻿import { promises as fs } from 'node:fs';
+import { promises as fs } from 'node:fs';
 
 const stopwords = new Set('a au aux avec ce ces cette dans de des du en et est il la le les leur leurs ou par pour que quel quelle quelles quels qui se ses son sur un une vos votre vous je nous what which how the a an and or of for to in is are was were with from at by as it its be this that between compare comparer analyse analyser analysis detailed détaille détaillée faire fait donne donner montrez montrer'.split(' '));
 const vocabulary = {
@@ -54,8 +54,12 @@ export function searchIndex(index,documents,query,{depth='deep',documentIds=[]}=
   const companies=Object.entries(aliases).filter(([,names])=>names.some(name=>words.includes(name))).map(([name])=>name);
   const years=[...new Set(query.match(/\b20\d{2}\b/g)||[])];
   const quarters=[...normalize(query).matchAll(/\b[qt]([1-4])\b/g)].map(match=>'q'+match[1]);
+  const requestedType=/\b(?:annuel(?:le)?s?|annual|10-k)\b/i.test(normalize(query))?'10-k':null;
+  for(const alias of Object.values(aliases).flat())terms.delete(alias);
+  if(requestedType)for(const word of ['annual','annuel','annuelle','annuels','annuelles'])terms.delete(word);
+  const financialQuestion=['revenue','sales','income','profit','margin','cash','debt','cost','expenses'].some(term=>terms.has(term));
   const allowedIds=new Set(documentIds);
-  const validIds=new Set(documents.filter(doc=>(!companies.length||companies.includes(doc.company))&&(!years.length||years.includes(doc.year))&&(!quarters.length||quarters.some(q=>doc.name.includes(q)))&&(!allowedIds.size||allowedIds.has(doc.id))).map(doc=>doc.id));
+  const validIds=new Set(documents.filter(doc=>(!companies.length||companies.includes(doc.company))&&(!years.length||years.includes(doc.year))&&(!quarters.length||quarters.some(q=>doc.name.includes(q)))&&(!requestedType||String(doc.type).toLowerCase()===requestedType)&&(!allowedIds.size||allowedIds.has(doc.id))).map(doc=>doc.id));
   const scored=[];
   for(const chunk of index.chunks){
     if(!validIds.has(chunk.documentId))continue;
@@ -66,12 +70,16 @@ export function searchIndex(index,documents,query,{depth='deep',documentIds=[]}=
       const idf=Math.log(1+(index.chunks.length-frequency+.5)/(frequency+.5));
       score+=weight*idf*(tf*2.2)/(tf+1.2*(.25+.75*chunk.length/index.averageLength));
     }
+    if(score>0&&financialQuestion&&/(?:revenue|sales|income|profit|margin|cash|debt|cost|expenses)[^\n]{0,130}\$/i.test(chunk.content))score*=3;
+    if(score>0&&(terms.has('revenue')||terms.has('sales'))&&/total\s+revenue[^.\n]{0,100}\$/i.test(chunk.content))score*=2;
     if(score>0)scored.push({...chunk,score,matched});
   }
   scored.sort((a,b)=>b.score-a.score);
   const perDocument=new Map(),selected=[];
   const limit=depth==='brief'?4:9;
-  for(const chunk of scored){
+  const firstByCompany=companies.length>1?companies.map(company=>scored.find(chunk=>chunk.company===company)).filter(Boolean):[];
+  const balanced=[...firstByCompany,...scored.filter(chunk=>!firstByCompany.includes(chunk))];
+  for(const chunk of balanced){
     const used=perDocument.get(chunk.documentId)||0;if(used>=3)continue;
     const key=chunk.documentId+':'+chunk.page+':'+chunk.content.slice(0,150);
     if(selected.some(item=>item.key===key))continue;
