@@ -114,7 +114,7 @@ export default function ChatPanel({thread, backend = {connected: false}, sending
       {onBack && <button type="button" className="chat-back" onClick={onBack}><ArrowLeft size={15}/>Toutes les conversations</button>}
       <div className="chat-title-block">
         <span className="eyebrow">{thread?.kind === 'thematic' ? 'SESSION THÉMATIQUE' : 'CONVERSATION'}</span>
-        <h2>{thread?.title || 'Une nouvelle conversation.'}</h2>
+        <h2 title={thread?.title || undefined}>{thread?.title || 'Une nouvelle conversation.'}</h2>
         {thread && <p className="chat-subtitle">{plural(messageCount, 'message')} · {thread.createdAt ? <>ouverte <time dateTime={thread.createdAt} title={formatFullDate(thread.createdAt)}>{formatRelative(thread.createdAt, now)}</time></> : 'sauvegarde locale'}{thread.memory.length ? ` · ${plural(thread.memory.length, 'point retenu', 'points retenus')}` : ''}</p>}
       </div>
       {thread && <div className="chat-tools">

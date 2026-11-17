@@ -1675,17 +1675,27 @@
     height: max(28rem, calc(100dvh - var(--topbar-height) - 11rem));
   }
 
-  /* Conversation ouverte : le fil d’Ariane suffit, l’échange prend toute la hauteur. */
+  /* Conversation ouverte : le fil d’Ariane suffit à l’œil, l’échange prend toute la hauteur. Le titre de page
+     reste lu par les lecteurs d’écran (masquage visuel seulement). */
   .chat-route[data-view=thread] .editorial-page-heading {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .chat-route[data-view=thread] .conversations-page {
     padding-top: 14px;
   }
 
-  .chat-route[data-view=thread] .chat-panel {
-    height: max(26rem, calc(100dvh - var(--topbar-height) - 2.75rem));
+  /* La route, et non le panneau, prend la hauteur : la grille garde l’historique et l’échange alignés,
+     au-dessus de la barre d’onglets entre 701 et 800 px de large. */
+  .chat-route[data-view=thread] {
+    height: max(26rem, calc(100dvh - var(--topbar-height) - var(--bottom-offset)));
   }
 
   .chat-panel-header {
