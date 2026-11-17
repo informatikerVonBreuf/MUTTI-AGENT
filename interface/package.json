@@ -11,7 +11,10 @@
     "build": "vite build",
     "start": "node --use-system-ca server/index.mjs",
     "test": "node --test server/*.test.mjs",
-    "test:ui": "node scripts/check-chat-ui.mjs"
+    "test:ui": "node scripts/check-chat-ui.mjs",
+    "test:redteam": "node scripts/redteam.mjs",
+    "audit:chain": "node scripts/verify-audit.mjs",
+    "audit:deps": "npm audit --omit=dev"
   },
   "dependencies": {
     "lucide-react": "1.57.0",

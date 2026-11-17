@@ -10,9 +10,15 @@ const child=spawn(process.execPath,['server/index.mjs'],{cwd:root,env:{...proces
 let output='';child.stdout.on('data',chunk=>output+=chunk);child.stderr.on('data',chunk=>output+=chunk);
 try{
   const origin=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{clearInterval(poll);reject(new Error('Server startup timed out: '+output));},20000);const poll=setInterval(()=>{const found=output.match(/http:\/\/127\.0\.0\.1:\d+/);if(found){clearTimeout(timer);clearInterval(poll);resolve(found[0]);}},100);child.once('exit',code=>{clearTimeout(timer);clearInterval(poll);reject(new Error('Server exited '+code+': '+output));});});
-  let cookie='';
-  async function api(route,method='GET',payload,expected=200){const response=await fetch(origin+route,{method,headers:{...(payload?{'Content-Type':'application/json'}:{}),...(cookie?{Cookie:cookie}:{})},body:payload?JSON.stringify(payload):undefined});if(response.headers.get('set-cookie'))cookie=response.headers.get('set-cookie').split(';')[0];const data=await response.json();assert.equal(response.status,expected,JSON.stringify(data));return data;}
-  assert.equal((await api('/api/health')).version,'sessions-v5');
+  const jar=new Map();const cookieHeader=()=>[...jar].filter(([,v])=>v).map(([k,v])=>k+'='+v).join('; ');let cookie='';
+  async function api(route,method='GET',payload,expected=200,{csrf=true}={}){
+    const mutation=!['GET','HEAD'].includes(method);
+    const response=await fetch(origin+route,{method,headers:{...(payload?{'Content-Type':'application/json'}:{}),...(jar.size?{Cookie:cookieHeader()}:{}),...(mutation&&csrf&&jar.get('folio_csrf')?{'X-CSRF-Token':jar.get('folio_csrf')}:{})},body:payload?JSON.stringify(payload):undefined});
+    for(const line of response.headers.getSetCookie()){const [pair]=line.split(';');const index=pair.indexOf('=');jar.set(pair.slice(0,index),pair.slice(index+1));}
+    cookie=jar.get('folio_session')?'folio_session='+jar.get('folio_session'):'';
+    const data=await response.json();assert.equal(response.status,expected,JSON.stringify(data));return data;
+  }
+  assert.equal((await api('/api/health')).version,'sessions-v6');
   const auth=await api('/api/auth/status');assert.equal(auth.configured,true);assert.equal(auth.apiProtected,true);assert.equal(auth.setupRequired,true);assert.equal(auth.localPreviewAllowed,false);
   assert.deepEqual(await api('/api/auth/session'),{authenticated:false,user:null});
   await api('/api/workspace','GET',undefined,401);await api('/api/backend/status','GET',undefined,401);
@@ -20,6 +26,10 @@ try{
   const created=await api('/api/auth/setup','POST',credentials,201);assert.match(created.recoveryCode,/^[A-Za-z0-9_-]{43}$/);assert.equal((await api('/api/auth/session')).authenticated,true);
   await api('/api/auth/setup','POST',credentials,409);await api('/api/auth/recovery','POST',{email:credentials.email},409);
   const workspace=await api('/api/workspace');assert.ok(workspace.documents.length>0);
+  // CSRF : sans jeton, aucune modification n'est acceptée ; champ inconnu refusé ; journal d'audit intact.
+  await api('/api/threads','POST',{kind:'chat'},403,{csrf:false});
+  await api('/api/threads','POST',{kind:'chat',role:'admin'},400);
+  const chain=await api('/api/audit/verify');assert.equal(chain.valid,true);assert.ok(chain.entries>=1);
   const backend=await api('/api/backend/status');assert.equal(backend.connected,false);assert.equal(backend.configured,false);assert.equal(backend.automaticSources,true);assert.equal(backend.vector.used,false);
   const automatic=await api('/api/threads','POST',{kind:'chat'},201);
   const automaticPacket=await api(`/api/threads/${automatic.id}/rag-context`,'POST',{question:'Comparer les revenus annuels de Meta et Google en 2024'});

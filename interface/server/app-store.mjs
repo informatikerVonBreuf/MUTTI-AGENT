@@ -4,12 +4,22 @@ import { randomUUID,createHash } from 'node:crypto';
 import { extractMemories,effectivePriority,boundedContext } from './chat-memory.mjs';
 import {createRagPreparation} from './rag-preparation.mjs';
 import {buildAgentPlan,RAG_POLICY} from './agent-policies.mjs';
+import {gzip} from 'node:zlib';
+import {promisify} from 'node:util';
+const gzipAsync=promisify(gzip);
 const fail=(message,status=400)=>{const error=new Error(message);error.status=status;throw error;};
 async function walk(directory){const entries=await fs.readdir(directory,{withFileTypes:true}).catch(error=>{if(error.code==='ENOENT')return [];throw error;});return (await Promise.all(entries.map(entry=>entry.isDirectory()?walk(path.join(directory,entry.name)):[path.join(directory,entry.name)]))).flat().sort();}
 const key=value=>value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 const trim=(value,min,max,label)=>{if(typeof value!=='string'||value.trim().length<min||value.trim().length>max)fail(label);return value.trim();};
 
-export async function createAppStore({projectRoot,storageDirectory,backendState=()=>({connected:false,citationsEnabled:false})}){
+// ACL documentaire : {"<id ou e-mail>": ["meta","google"] | ["*"]}. Sans entrée, l'utilisateur voit tout le corpus
+// (atelier à propriétaire unique). Préparation de l'isolation multi-utilisateur, appliquée avant la recherche.
+export function parseDocumentAcl(raw){
+  if(!raw)return null;let value;try{value=JSON.parse(raw);}catch{throw new Error('FOLIO_DOCUMENT_ACL doit être un objet JSON.');}
+  if(!value||typeof value!=='object'||Array.isArray(value)||Object.values(value).some(list=>!Array.isArray(list)||list.some(item=>typeof item!=='string')))throw new Error('FOLIO_DOCUMENT_ACL invalide.');
+  return value;
+}
+export async function createAppStore({projectRoot,storageDirectory,backendState=()=>({connected:false,citationsEnabled:false}),documentAcl=null}){
   const markdown=await walk(path.join(projectRoot,'data/rag-data/markdown'));
   const pdfs=await walk(path.join(projectRoot,'data/rag-data/pdfs'));
   const grouped=new Map();
@@ -39,6 +49,14 @@ export async function createAppStore({projectRoot,storageDirectory,backendState=
     }
     state.migratedLegacy=true;await persist();
   }
+  const allowedDocuments=actor=>{
+    if(!documentAcl||!actor)return null;
+    const rule=documentAcl[actor.id]??documentAcl[actor.email];
+    if(!rule)return documentAcl['*']?documents.filter(doc=>documentAcl['*'].includes('*')||documentAcl['*'].includes(doc.company)).map(doc=>doc.id):null;
+    return documents.filter(doc=>rule.includes('*')||rule.includes(doc.company)).map(doc=>doc.id);
+  };
+  // Une conversation créée par un compte n'est visible que par lui ; les anciennes (sans propriétaire) restent à l'atelier unique.
+  const owns=(thread,actor)=>!thread.ownerId||!actor||thread.ownerId===actor.id;
   const threadById=id=>state.threads.find(thread=>thread.id===id);
   const requireThread=id=>threadById(id)||fail('Conversation introuvable.',404);
   const linkedNotes=thread=>thread.kind!=='thematic'?[]:thread.sourceThreadIds.flatMap(id=>{const source=threadById(id);return source?source.memory.map(note=>({...note,sourceThreadId:source.id,sourceThreadTitle:source.title})):[];});
@@ -46,32 +64,37 @@ export async function createAppStore({projectRoot,storageDirectory,backendState=
   const summary=thread=>({runStatus:thread.lastRun?.status||null,id:thread.id,kind:thread.kind,title:thread.title,theme:thread.theme,createdAt:thread.createdAt,updatedAt:thread.updatedAt,messageCount:thread.messages.length,memoryCount:thread.memory.length,linkedMemoryCount:linkedNotes(thread).length,sourceThreadIds:thread.sourceThreadIds,effectivePriority:effectivePriority(thread),pinned:thread.pinned,documentCount:(thread.documentIds||[]).length,lastMessage:thread.messages.at(-1)?.content.slice(0,130)||''});
   const docSummary=({pdf,text,...doc})=>({...doc,hasPdf:Boolean(pdf),hasText:Boolean(text)});
   return {
-    overview(){return {documents:documents.map(docSummary),companies,threads:state.threads.map(summary).sort((a,b)=>Number(b.pinned)-Number(a.pinned)||String(b.updatedAt).localeCompare(a.updatedAt)),backend:{...backendState(),memoryMode:'local_rules',ragPreparationAvailable:true},memoryCount:state.threads.reduce((count,thread)=>count+thread.memory.length,0)};},
+    canAccess(id,actor){const thread=threadById(id);return Boolean(thread)&&owns(thread,actor);},
+    canReadDocument(id,actor){const allowed=allowedDocuments(actor);return !allowed||allowed.includes(id);},
+    overview(actor=null){const allowed=allowedDocuments(actor);const visible=allowed?documents.filter(doc=>allowed.includes(doc.id)):documents;return {documents:visible.map(docSummary),companies:[...new Set(visible.map(doc=>doc.company))],threads:state.threads.filter(thread=>owns(thread,actor)).map(summary).sort((a,b)=>Number(b.pinned)-Number(a.pinned)||String(b.updatedAt).localeCompare(a.updatedAt)),backend:{...backendState(),memoryMode:'local_rules',ragPreparationAvailable:true},memoryCount:state.threads.reduce((count,thread)=>count+thread.memory.length,0)};},
     document(id){return documents.find(doc=>doc.id===id);},
     // Réponse JSON du texte extrait, sérialisée une seule fois (corpus local de quelques Mo, en lecture seule).
     async documentPayload(id){
       const doc=documents.find(item=>item.id===id);if(!doc)return null;
       let cached=documentCache.get(id);
-      if(!cached){const content=doc.text?await fs.readFile(doc.text,'utf8'):'';const body=Buffer.from(JSON.stringify({id:doc.id,name:doc.name,company:doc.company,hasPdf:Boolean(doc.pdf),hasText:Boolean(doc.text),content}));cached={body,etag:'"'+createHash('sha256').update(body).digest('hex').slice(0,32)+'"'};documentCache.set(id,cached);}
+      if(!cached){const content=doc.text?await fs.readFile(doc.text,'utf8'):'';const body=Buffer.from(JSON.stringify({id:doc.id,name:doc.name,company:doc.company,hasPdf:Boolean(doc.pdf),hasText:Boolean(doc.text),content}));cached={body,gzip:await gzipAsync(body),etag:'"'+createHash('sha256').update(body).digest('hex').slice(0,32)+'"'};documentCache.set(id,cached);}
       return cached;
     },
-    warm(){return prepareRag.warm();},
+    // Préchauffage : index BM25, classifieur, puis texte de chaque rapport mis en cache (quelques Mo).
+    async warm(){await prepareRag.warm();for(const doc of documents)await this.documentPayload(doc.id).catch(()=>{});},
     getThread(id){return serialize(requireThread(id));},
-    documentScope(id){const thread=requireThread(id);return thread.documentIds?.length?[...thread.documentIds]:documents.map(doc=>doc.id);},
+    documentScope(id,actor=null){const thread=requireThread(id),allowed=allowedDocuments(actor);const scope=thread.documentIds?.length?[...thread.documentIds]:documents.map(doc=>doc.id);return allowed?scope.filter(docId=>allowed.includes(docId)):scope;},
     async setRun(id,run){const thread=requireThread(id);thread.lastRun=JSON.parse(JSON.stringify(run));await persist();return serialize(thread);},
     async recoverRuns(){let changed=false;for(const thread of state.threads){if(thread.lastRun?.status==='running'){thread.lastRun.status='interrupted';thread.lastRun.finishedAt=new Date().toISOString();thread.lastRun.error={code:'INTERRUPTED',message:'Le serveur a été redémarré. Relancez explicitement cette analyse.'};for(const task of thread.lastRun.tasks||[])if(task.status==='running')task.status='interrupted';changed=true;}}if(changed)await persist();},
     async addAssistantMessage(id,{content,citations,runId,sourceMessageId,simulated=false}){const thread=requireThread(id);if(thread.messages.some(message=>message.runId===runId))return serialize(thread);if(!thread.messages.some(message=>message.id===sourceMessageId&&message.role==='user'))fail('Question source introuvable.',404);if(typeof content!=='string'||!content.trim()||content.length>24000||!Array.isArray(citations)||citations.some(c=>!documents.some(doc=>doc.id===c.documentId)))fail('Réponse documentaire invalide.');thread.messages.push({id:randomUUID(),role:'assistant',content,citations,citationsVerified:true,runId,sourceMessageId,createdAt:new Date().toISOString(),status:'completed',...(simulated?{simulated:true}:{})});thread.updatedAt=new Date().toISOString();await persist();return serialize(thread);},
     context(id){const thread=requireThread(id);return boundedContext(thread,linkedNotes(thread));},
     plan(id){return buildAgentPlan(requireThread(id));},
-    async prepareRag(id,question){const thread=requireThread(id);return prepareRag({question,documentIds:thread.documentIds||[],threadId:id,memory:boundedContext(thread,linkedNotes(thread)).memory});},
-    async createThread({kind='chat',title,theme='',sourceThreadIds=[],documentIds=[]}={}){
+    async prepareRag(id,question,{actor=null}={}){const thread=requireThread(id),allowed=allowedDocuments(actor);return prepareRag({question,documentIds:thread.documentIds||[],threadId:id,memory:boundedContext(thread,linkedNotes(thread)).memory,allowedDocumentIds:allowed});},
+    async createThread({kind='chat',title,theme='',sourceThreadIds=[],documentIds=[]}={},actor=null){
       if(!['chat','thematic'].includes(kind))fail('Type de session invalide.');
       documentIds=validateDocuments(documentIds);
       if(kind==='thematic')theme=trim(theme,2,120,'Indiquez un thème de 2 à 120 caractères.');else theme='';
       if(!Array.isArray(sourceThreadIds)||sourceThreadIds.length>50||sourceThreadIds.some(id=>typeof id!=='string'||threadById(id)?.kind!=='chat'))fail('Les conversations associées sont invalides.');
       if(kind==='chat'&&sourceThreadIds.length)fail('Une conversation ordinaire ne reprend pas d’autre session.');
       const now=new Date().toISOString();
-      const thread={id:randomUUID(),kind,documentIds,title:title?trim(title,1,120,'Titre invalide.'):kind==='thematic'?theme:'Nouvelle conversation',theme,sourceThreadIds:[...new Set(sourceThreadIds)],messages:[],memory:[],createdAt:now,updatedAt:now,priority:'normal',priorityManual:false,pinned:false};
+      if(actor&&sourceThreadIds.some(id=>!owns(threadById(id),actor)))fail('Les conversations associées sont invalides.');
+      const allowed=allowedDocuments(actor);if(allowed&&documentIds.some(id=>!allowed.includes(id)))fail('Document hors de vos droits.',403);
+      const thread={id:randomUUID(),...(actor?.id?{ownerId:actor.id}:{}),kind,documentIds,title:title?trim(title,1,120,'Titre invalide.'):kind==='thematic'?theme:'Nouvelle conversation',theme,sourceThreadIds:[...new Set(sourceThreadIds)],messages:[],memory:[],createdAt:now,updatedAt:now,priority:'normal',priorityManual:false,pinned:false};
       state.threads.push(thread);await persist();return serialize(thread);
     },
     async updateThread(id,patch={}){
