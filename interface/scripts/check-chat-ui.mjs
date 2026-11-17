@@ -44,5 +44,12 @@ try{
   assert.ok(loading.includes('disabled=""')&&!loading.includes('auth-preview'));
   const unavailable=renderToStaticMarkup(React.createElement(AuthScreen,{...authProps,statusState:'error',canPreview:false}));
   assert.ok(unavailable.includes('Réessayer')&&!unavailable.includes('auth-preview'));
+  const localStatus={provider:'local',configured:true,apiProtected:true,localPreviewAllowed:false,recoveryMode:'local_code'};
+  const setup=renderToStaticMarkup(React.createElement(AuthScreen,{...authProps,mode:'setup',authInfo:{...localStatus,setupRequired:true},statusState:'connected',canPreview:false}));
+  assert.ok(setup.includes('Créer mon compte')&&setup.includes('id="auth-confirm"')&&setup.includes('autoComplete="new-password"')&&!setup.includes('auth-preview'));
+  const localRecovery=renderToStaticMarkup(React.createElement(AuthScreen,{...authProps,mode:'recovery',authInfo:localStatus,statusState:'connected',canPreview:false}));
+  assert.ok(localRecovery.includes('id="auth-recovery-code"')&&localRecovery.includes('Réinitialiser mon accès')&&!localRecovery.includes('Demander un lien'));
+  const cognito=renderToStaticMarkup(React.createElement(AuthScreen,{...authProps,authInfo:{provider:'cognito',configured:true},statusState:'connected',canPreview:false}));
+  assert.ok(cognito.includes('Continuer avec AWS')&&!cognito.includes('id="auth-password"'));
   console.log('Rendu React vérifié : citations masquées sans backend, commandes de mémoire, importance et suppression présentes.');
 }finally{await vite.close();}

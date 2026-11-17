@@ -1,0 +1,278 @@
+/* Fenêtres modales et formulaires. */
+
+.folio-app[data-page=themes] :is(.app-content,.modal-backdrop) {
+  --paper: #F3EAE6;
+  --surface: #FDF8F2;
+  --surface-soft: #E9DAD6;
+  --primary: #53394A;
+  --ink: #422F3D;
+  --muted: #685561;
+  --line: #DCCBCB;
+  --oxide: #8F3E40;
+  --rule: #BCA0A6;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #142B245C;
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  padding: 22px;
+}
+
+.modal {
+  width: min(100%, 620px);
+  max-height: 90dvh;
+  overflow: auto;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--oxide);
+  border-radius: 2px;
+  padding: 27px;
+  box-shadow: 0 20px 80px #132C2425;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 17px;
+}
+
+.modal-header .eyebrow {
+  font-size: 0.6875rem;
+  letter-spacing: 1.3px;
+}
+
+.modal-header h2 {
+  font: 2.0625rem/1.12 var(--serif);
+  font-weight: 400;
+  letter-spacing: -.8px;
+  margin: 13px 0 0;
+}
+
+.modal-description {
+  font-size: 0.8438rem;
+  line-height: 1.9;
+  color: var(--muted);
+  margin: 17px 0 24px;
+}
+
+.field-label {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--ink);
+  margin: 21px 0 10px;
+}
+
+.field-label > small {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-left: 6px;
+}
+
+.text-field {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  padding: 12px;
+  color: var(--ink);
+  font-size: 0.8438rem;
+  line-height: 1.8;
+  border-radius: 2px;
+}
+
+textarea.text-field {
+  resize: vertical;
+  min-height: 77px;
+}
+
+.text-field:focus-visible {
+  outline: 1px solid var(--oxide);
+  outline-offset: 0;
+}
+
+.form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 26px;
+}
+
+.delete-explanation {
+  font-size: 0.8438rem;
+  line-height: 1.9;
+  color: var(--muted);
+  border-left: 2px solid #A34630;
+  padding: 1px 0 1px 15px;
+}
+
+.delete-explanation p {
+  margin: 9px 0;
+}
+
+.delete-explanation p:last-child {
+  font-size: 0.7813rem;
+  color: #924330;
+}
+
+@media (max-width: 800px) {
+  .modal {
+    padding: 24px;
+  }
+
+  .modal-header h2 {
+    font-size: 1.9375rem;
+  }
+}
+
+@media (max-width: 620px) {
+  .modal-backdrop {
+    padding: 14px;
+  }
+
+  .modal {
+    padding: 21px;
+    max-height: 92dvh;
+  }
+
+  .modal-header h2 {
+    font-size: 1.875rem;
+  }
+
+  .modal-header .eyebrow {
+    font-size: 0.6875rem;
+  }
+
+  .modal-description {
+    font-size: 0.8438rem;
+    margin-bottom: 22px;
+  }
+
+  .form-footer {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 370px) {
+  .modal {
+    padding: 18px;
+  }
+
+  .modal-header h2 {
+    font-size: 1.6875rem;
+  }
+}
+
+@media print {
+  .modal-header {
+    display: none;
+  }
+
+  .modal-backdrop {
+    position: static;
+    background: none;
+    padding: 0;
+  }
+
+  .modal {
+    box-shadow: none;
+    max-height: none;
+    border: 0;
+    width: 100%;
+    padding: 0;
+  }
+}
+
+/* ————— Révision : en-tête, aides de saisie, panneau ancré sur téléphone ————— */
+.modal-header .eyebrow {
+  font-size: var(--text-micro);
+}
+
+.modal-description,
+.field-label {
+  font-size: var(--text-small);
+}
+
+.text-field {
+  font-size: var(--text-body);
+}
+
+.field-help {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: var(--text-caption);
+  color: var(--muted);
+}
+
+.form-footer {
+  flex-wrap: wrap;
+}
+
+.selection-count {
+  margin-right: auto;
+  font: var(--text-micro) var(--mono);
+  color: var(--muted);
+}
+
+.selection-count.is-full {
+  color: #A34630;
+}
+
+@media (max-width: 640px) {
+  .modal-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal {
+    width: 100%;
+    max-height: calc(100dvh - 24px - var(--safe-top));
+    padding: 20px max(18px, var(--safe-right)) calc(20px + var(--safe-bottom)) max(18px, var(--safe-left));
+    border-radius: 10px 10px 0 0;
+    animation: sheet-in .22s ease;
+  }
+
+  .modal-header {
+    position: sticky;
+    top: -20px;
+    z-index: 2;
+    margin: -20px -18px 0;
+    padding: 18px 18px 10px;
+    background: var(--surface);
+  }
+
+  .form-footer > .button-primary,
+  .form-footer > .button-danger {
+    flex: 1;
+  }
+}
+
+@keyframes sheet-in {
+  from { transform: translateY(24px); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal {
+    animation: none;
+  }
+}
+
+.associated-choices input {
+  width: 18px;
+  height: 18px;
+}
+
+.associated-choices > label,
+.scope-company > label {
+  min-height: var(--control);
+}

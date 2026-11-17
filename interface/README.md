@@ -17,9 +17,9 @@ Node 22.22+ est requis. `npm.cmd run dev` active le développement. Le serveur �
 
 ## Accès et fonctionnalités
 
-La page initiale et `#login` ouvrent le formulaire ; `#recovery` prépare la récupération. **L’authentification AWS n’est pas raccordée.** Aucun compte, cookie de connexion ou e-mail n’est créé. Le client ne transmet pas le mot de passe tant que le service est non configuré.
+La page initiale et `#login` ouvrent la connexion locale. Au premier démarrage, créer le compte propriétaire et conserver le code de récupération affiché une seule fois. Aucun mot de passe par défaut n’est fourni. Les API métier exigent désormais une session ; le raccourci d’aperçu anonyme est retiré.
 
-« Parcourir l’aperçu local » permet d’utiliser bibliothèque et analyses sur localhost. Les API ne sont pas encore isolées par utilisateur. Le raccordement Cognito et le coffre de secrets sont décrits dans [CONNEXION.md](CONNEXION.md).
+Déconnexion et récupération par code sont actives. Les mots de passe sont hachés, les sessions utilisent un cookie HttpOnly et les fichiers d’authentification restent dans `.runtime`, ignoré par Git. L’atelier est prévu pour un propriétaire unique. L’adaptateur Cognito est préparé et testé avec des réponses simulées ; son activation réelle et le coffre AWS restent à configurer. Voir [CONNEXION.md](CONNEXION.md).
 
 La bibliothèque regroupe PDF et Markdown de `../data/rag-data` sans modifier les documents originaux. Les espaces sont accessibles par `#home`, `#library`, `#chat` et `#themes`.
 
@@ -27,7 +27,15 @@ Une question lance automatiquement la recherche et la réponse si le fournisseur
 
 Chaque résumé possède une session indépendante. Ses quatre rôles exécutés sont planification, recherche, vérification et assemblage. Le journal affiche les événements réels et les erreurs. L’utilisateur peut arrêter ou relancer une analyse. Aucun raisonnement privé ni avancement fictif n’est affiché.
 
-La recherche actuelle est **BM25 sur le corpus local**. Qdrant n’est pas utilisé ; ses anciennes ressources restent à retrouver. Gemini reçoit questions et extraits lors des analyses autorisées. Lire [BACKEND.md](BACKEND.md) pour la configuration privée, les transmissions, les API et les limites.
+La recherche actuelle est **BM25 sur le corpus local**. Qdrant n’est pas utilisé ; ses anciennes ressources restent à retrouver. Gemini 3.8 Flash reçoit questions et extraits lors des analyses autorisées. Le chat et les quatre étapes du résumé ont été validés avec de véritables appels, des citations retrouvées dans les sources et un historique de test isolé. Les mesures ponctuelles étaient d’environ 8 secondes pour la question et 35 secondes pour le résumé. Lire [BACKEND.md](BACKEND.md) pour la configuration privée, les transmissions, les API et les limites.
+
+## Organisation du front
+
+- `src/App.jsx` : coquille (navigation, barre supérieure, messages, état global et appels API) ; `src/api.mjs` et `src/format.mjs` (dates, pluriels, titres de rapports, état du modèle) ; `src/export.mjs` (export Markdown).
+- `src/pages/` : accueil, bibliothèque, conversations, résumés thématiques. `src/modals/Dialogs.jsx` : fenêtres de dialogue. `src/components/` : primitives (Markdown, Modal, compteurs), en-têtes de page, garde-fou d’erreur.
+- `src/styles/` : `tokens.css` (échelle typographique, gabarit, cibles), puis une feuille par zone (`base`, `modal`, `shell`, `home`, `library`, `chat`, `themes`, `auth`). L’ordre d’import dans `main.jsx` fait partie de la cascade.
+
+Les règles d’adaptation aux écrans sont décrites dans [DIRECTION-VISUELLE.md](DIRECTION-VISUELLE.md).
 
 ## Historique et mémoire
 
@@ -51,3 +59,9 @@ node scripts/check-agent-bridge.mjs
 Depuis la racine : `C:/Python314/python.exe -m unittest scripts.test_folio_worker scripts.test_security_boundaries -v`.
 
 Ces contrôles déterministes n’appellent pas de fournisseur payant. Le pont lance réellement Python/LangGraph avec un modèle simulé. Le rendu React statique et les requêtes HTTP ne remplacent pas un E2E navigateur ni un test utilisateur. Voir aussi [la note de sécurité](SECURITE-RAG-AGENTS-2026.md).
+
+## Notebook de validation métier
+
+Ouvrir [13 Validation RAG sur les documents metiers.ipynb](<../13 Validation RAG sur les documents metiers.ipynb>). Il réutilise les services de l’application pour les rapports Meta, Google, Apple et Amazon : recherche automatique, périmètre, valeurs attendues, provenance, abstention et contrôles de sécurité. `RUN_LIVE` est désactivé par défaut pour éviter les appels facturés involontaires ; il ajoute le chat Gemini et le résumé à quatre rôles. Les historiques de test sont isolés.
+
+Les cas sont dans `data/rag-validation/business-cases.json` et le lanceur Node dans `interface/scripts/validate-business-rag.mjs`. Les mesures documentaires sont définies dans le notebook ; elles ne sont pas présentées comme des scores de vérité ou une précision sémantique annotée.

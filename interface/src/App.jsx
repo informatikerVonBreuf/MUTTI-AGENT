@@ -1,89 +1,303 @@
-import React,{useCallback,useEffect,useRef,useState} from 'react';
-import {ArrowDownToLine,ArrowLeft,ArrowUpRight,Brain,Check,ChevronRight,FileText,Folder,FolderOpen,Home,Library,Menu,MessageSquare,Pencil,Plus,Search,Trash2,UserRound,X} from 'lucide-react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {Check, ChevronRight, FileText, Home, Library, LogOut, MessageSquare, Plus, RefreshCw, UserRound, X} from 'lucide-react';
 import {FolioMark} from './Identity.jsx';
-import BookSculpture from './BookSculpture.jsx';
-import {HomePage,PageScenery,PageHeading,MotionControl} from './ImmersivePages.jsx';
-import AgentTransparency,{RagPreparationView} from './AgentTransparency.jsx';
-import ChatPanel,{ChatHistory,priorities} from './ChatPanel.jsx';
-import {Markdown,Modal} from './components/Primitives.jsx';
-const labels={home:'Accueil',library:'Bibliothèque',chat:'Conversations',themes:'Résumés thématiques'};
-const companyLabel=name=>({meta:'Meta',google:'Google',amazon:'Amazon',apple:'Apple'}[name]||name);
-const noteLabels={objectif:'Objectif',preference:'Préférence',decision:'Décision',contrainte:'Contrainte',retenu:'Point retenu'};
-async function api(url,options){const response=await fetch(url,options);const data=await response.json();if(!response.ok)throw new Error(data.error||'Le serveur ne répond pas.');return data;}
-const json=(method,data)=>({method,headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-export default function App({onOpenLogin,accessMode='local_preview'}){
-  const [workspace,setWorkspace]=useState(null),[page,setPage]=useState(()=>{const value=window.location.hash.slice(1);return ['home','library','chat','themes'].includes(value)?value:'home';}),[sidebar,setSidebar]=useState(false);
-  const [company,setCompany]=useState(null),[query,setQuery]=useState('');
-  const [chat,setChat]=useState(null),[themeSession,setThemeSession]=useState(null);
-  const [busy,setBusy]=useState(false),[sending,setSending]=useState(false),[error,setError]=useState(''),[toast,setToast]=useState('');
-  const [modal,setModal]=useState(null),[document,setDocument]=useState(null),[format,setFormat]=useState('pdf'),[expanded,setExpanded]=useState(false);
-  const [deleteTarget,setDeleteTarget]=useState(null),[renameTarget,setRenameTarget]=useState(null),[title,setTitle]=useState('');
-  const [theme,setTheme]=useState(''),[associated,setAssociated]=useState([]);
-  const [memoryThread,setMemoryThread]=useState(null),[memoryText,setMemoryText]=useState(''),[editingNote,setEditingNote]=useState(null),[editText,setEditText]=useState('');
-  const [motionPaused,setMotionPaused]=useState(()=>{try{return localStorage.getItem('folio-motion')==='paused'||window.matchMedia('(prefers-reduced-motion: reduce)').matches;}catch{return false;}});
-  const [pdfSelection,setPdfSelection]=useState([]),[pdfThread,setPdfThread]=useState(null),[ragPacket,setRagPacket]=useState(null),[ragLoading,setRagLoading]=useState(false);
-  useEffect(()=>{window.document.documentElement.dataset.motion=motionPaused?'paused':'running';try{localStorage.setItem('folio-motion',motionPaused?'paused':'running');}catch{}},[motionPaused]);
-  const [trackedThread,setTrackedThread]=useState(null);
-  const readerRequest=useRef(0);
-  const closeModal=useCallback(()=>{readerRequest.current++;setModal(null);},[]);
-  const refresh=async()=>{const data=await api('/api/workspace');setWorkspace(data);return data;};
-  useEffect(()=>{let active=true;window.document.documentElement.dataset.theme='atelier';api('/api/workspace').then(data=>{if(active)setWorkspace(data);}).catch(err=>{if(active)setError(err.message);});return()=>{active=false;};},[]);
-  useEffect(()=>{if(!toast)return;const timeout=setTimeout(()=>setToast(''),4200);return()=>clearTimeout(timeout);},[toast]);
-  function navigate(next){window.location.hash=next;setPage(next);setSidebar(false);setError('');setRagPacket(null);}
-  useEffect(()=>{window.document.title=labels[page]+' | Folio - Archive vivante';},[page]);
-  useEffect(()=>{const followHash=()=>{const value=window.location.hash.slice(1);if(['home','library','chat','themes'].includes(value)){setPage(value);setSidebar(false);setRagPacket(null);}};window.addEventListener('hashchange',followHash);return()=>window.removeEventListener('hashchange',followHash);},[]);
-  function applyThread(thread){if(thread.kind==='thematic')setThemeSession(thread);else setChat(thread);setMemoryThread(previous=>previous?.id===thread.id?thread:previous);}
-  async function openThread(id){if(busy||sending)return;setBusy(true);setError('');try{const thread=await api('/api/threads/'+id);applyThread(thread);navigate(thread.kind==='thematic'?'themes':'chat');}catch(err){setError(err.message);}finally{setBusy(false);}}
-  async function newChat(documentIds=[]){if(!Array.isArray(documentIds))documentIds=[];if(busy||sending)return;setBusy(true);setError('');try{const thread=await api('/api/threads',json('POST',{kind:'chat',documentIds}));setChat(thread);setModal(null);navigate('chat');await refresh();}catch(err){setError(err.message);}finally{setBusy(false);}}
-  async function startRun(thread,messageId){const run=await api(`/api/threads/${thread.id}/run`,json('POST',{messageId}));const updated=await api('/api/threads/'+thread.id);applyThread(updated);if(run.status==='running')setTrackedThread(thread.id);return run;}
-  async function send(content){if(sending)return false;setSending(true);setError('');let saved=false;try{let current=page==='themes'?themeSession:chat;if(!current){current=await api('/api/threads',json('POST',{kind:'chat'}));setChat(current);navigate('chat');}const result=await api(`/api/threads/${current.id}/messages`,json('POST',{content}));saved=true;applyThread(result.thread);await refresh();await startRun(result.thread,result.thread.messages.at(-1).id);return true;}catch(err){setError(err.message);return saved;}finally{setSending(false);}}
-  async function retryRun(thread){if(sending)return;const messageId=thread.lastRun?.messageId||[...thread.messages].reverse().find(message=>message.role==='user')?.id;if(!messageId)return;setSending(true);try{await startRun(thread,messageId);}catch(err){setError(err.message);}finally{setSending(false);}}
-  async function stopRun(thread){try{await api(`/api/threads/${thread.id}/run`,{method:'DELETE'});applyThread(await api('/api/threads/'+thread.id));await refresh();}catch(err){setError(err.message);}}
-  async function checkBackend(){setWorkspace(previous=>previous?{...previous,backend:{...previous.backend,state:'checking'}}:previous);try{await api('/api/backend/probe',{method:'POST'});}catch(err){setError(err.message);}finally{await refresh().catch(err=>setError(err.message));}}
-  useEffect(()=>{if(!trackedThread)return;let active=true,inFlight=false;const poll=async()=>{if(inFlight)return;inFlight=true;try{const updated=await api('/api/threads/'+trackedThread);if(!active)return;setChat(previous=>previous?.id===updated.id?updated:previous);setThemeSession(previous=>previous?.id===updated.id?updated:previous);if(updated.lastRun?.status!=='running'){setTrackedThread(null);await refresh();}}catch(err){if(active){setTrackedThread(null);setError(err.message);}}finally{inFlight=false;}};const timer=setInterval(poll,900);poll();return()=>{active=false;clearInterval(timer);};},[trackedThread]);
-  useEffect(()=>{if(!workspace)return;const running=workspace.threads.find(thread=>thread.runStatus==='running');if(running&&!trackedThread)setTrackedThread(running.id);if(workspace.backend?.state!=='checking')return;const timer=setTimeout(()=>refresh().catch(()=>{}),1500);return()=>clearTimeout(timer);},[workspace,trackedThread]);
-  async function changeThread(thread,patch){setError('');try{const updated=await api('/api/threads/'+thread.id,json('PATCH',patch));applyThread(updated);await refresh();return true;}catch(err){setError(err.message);return false;}}
-  function openMemory(thread){setMemoryThread(thread);setMemoryText('');setEditingNote(null);setModal('memory');}
-  async function retain(thread,message){try{const updated=await api(`/api/threads/${thread.id}/memory`,json('POST',{text:message.content.slice(0,1000),sourceMessageId:message.id}));applyThread(updated);await refresh();setToast('Ce message a été ajouté à la mémoire.');}catch(err){setError(err.message);}}
-  async function addMemory(event){event.preventDefault();if(!memoryThread||busy)return;setBusy(true);try{const updated=await api(`/api/threads/${memoryThread.id}/memory`,json('POST',{text:memoryText}));applyThread(updated);setMemoryText('');await refresh();}catch(err){setError(err.message);}finally{setBusy(false);}}
-  async function editMemory(event){event.preventDefault();if(!editingNote||busy)return;setBusy(true);try{const updated=await api(`/api/threads/${memoryThread.id}/memory/${editingNote}`,json('PATCH',{text:editText}));applyThread(updated);setEditingNote(null);await refresh();}catch(err){setError(err.message);}finally{setBusy(false);}}
-  async function forget(note){if(busy)return;setBusy(true);try{const updated=await api(`/api/threads/${memoryThread.id}/memory/${note.id}`,{method:'DELETE'});applyThread(updated);await refresh();}catch(err){setError(err.message);}finally{setBusy(false);}}
-  function askDelete(thread){if(busy||sending)return;setDeleteTarget(thread);setModal('delete');}
-  async function deleteConversation(){if(!deleteTarget||busy)return;setBusy(true);setError('');try{await api('/api/threads/'+deleteTarget.id,{method:'DELETE'});if(chat?.id===deleteTarget.id)setChat(null);if(themeSession?.id===deleteTarget.id)setThemeSession(null);else if(themeSession)applyThread(await api('/api/threads/'+themeSession.id));if(memoryThread?.id===deleteTarget.id)setMemoryThread(null);setModal(null);await refresh();setToast('La session et sa mémoire ont été supprimées.');}catch(err){setError(err.message);}finally{setBusy(false);}}
-  function rename(thread){setRenameTarget(thread);setTitle(thread.title);setModal('rename');}
-  async function saveTitle(event){event.preventDefault();if(await changeThread(renameTarget,{title}))setModal(null);}
-  async function createTheme(event){event.preventDefault();if(busy)return;setBusy(true);setError('');try{const thread=await api('/api/threads',json('POST',{kind:'thematic',theme,sourceThreadIds:associated}));setThemeSession(thread);setModal(null);navigate('themes');await refresh();}catch(err){setError(err.message);}finally{setBusy(false);}}
-  async function openDocument(id){const request=++readerRequest.current;setModal('document');setDocument(null);setExpanded(false);try{const doc=await api('/api/documents/'+id);if(request===readerRequest.current){setDocument(doc);setFormat(doc.hasPdf?'pdf':'text');}}catch(err){if(request===readerRequest.current)setError(err.message);}}
-  function newTheme(){setTheme('');setAssociated([]);setModal('theme');}
-  function choosePdfs(thread){setPdfThread(thread||null);setPdfSelection(thread?.documentIds||[]);setModal('pdfs');}
-  async function savePdfs(event){event.preventDefault();if(pdfThread){if(await changeThread(pdfThread,{documentIds:pdfSelection})){setModal(null);setRagPacket(null);}}else await newChat(pdfSelection);}
-  async function prepareContext(thread,question){if(!thread||ragLoading)return;setRagLoading(true);setRagPacket(null);setError('');try{setRagPacket(await api(`/api/threads/${thread.id}/rag-context`,json('POST',{question})));}catch(err){setError(err.message);}finally{setRagLoading(false);}}
-  const documents=workspace?.documents||[],threads=workspace?.threads||[],chats=threads.filter(item=>item.kind==='chat'),themes=threads.filter(item=>item.kind==='thematic');
-  const filteredDocs=documents.filter(doc=>(!company||doc.company===company)&&doc.name.toLowerCase().includes(query.toLowerCase()));
-  const backend=workspace?.backend||{connected:false};
-  const panelProps={backend,sending,onCheckBackend:checkBackend,onRetryRun:retryRun,onStopRun:stopRun,onClearScope:thread=>changeThread(thread,{documentIds:[]}),documents,ragLoading,onChooseDocuments:choosePdfs,onPrepareRag:prepareContext,onSend:send,onMemory:openMemory,onRetain:retain,onPriority:(thread,priority)=>changeThread(thread,{priority}),onRename:rename,onDelete:askDelete,onOpenDocument:openDocument};
+import {MotionControl, PageScenery} from './components/PageChrome.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
+import HomePage from './pages/HomePage.jsx';
+import LibraryPage from './pages/LibraryPage.jsx';
+import ChatPage from './pages/ChatPage.jsx';
+import ThemesPage from './pages/ThemesPage.jsx';
+import {DeleteModal, DocumentModal, MemoryModal, RenameModal, ScopeModal, ThemeModal} from './modals/Dialogs.jsx';
+import {api, json} from './api.mjs';
+import {backendSentence, backendShortLabels, backendState, pageLabels, plural} from './format.mjs';
+
+const PAGES = ['home', 'library', 'chat', 'themes'];
+const NAVIGATION = [
+  ['home', Home, 'Accueil', 'Accueil'],
+  ['library', Library, 'Bibliothèque', 'Bibliothèque'],
+  ['chat', MessageSquare, 'Conversations', 'Conversations'],
+  ['themes', FileText, 'Résumés thématiques', 'Thèmes'],
+];
+const readPage = () => {
+  if (typeof window === 'undefined') return 'home';
+  const value = window.location.hash.slice(1);
+  return PAGES.includes(value) ? value : 'home';
+};
+const readMotion = () => {
+  try { return localStorage.getItem('folio-motion') === 'paused' || window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
+};
+
+function BackendChip({backend, onCheck}) {
+  const state = backendState(backend);
+  const label = 'État du modèle IA : ' + backendSentence(backend);
+  const content = <><i className="backend-dot" aria-hidden="true"/><span className="backend-chip-label">{backendShortLabels[state]}</span></>;
+  if (backend.configured && backend.state !== 'disabled' && state === 'unavailable') {
+    return <button className={'backend-chip state-' + state} onClick={onCheck} title={label + ' Cliquez pour vérifier à nouveau.'} aria-label={label + ' Vérifier à nouveau.'}>{content}<RefreshCw size={12}/></button>;
+  }
+  return <span className={'backend-chip state-' + state} title={label} role="status" aria-label={label}>{content}</span>;
+}
+
+export default function App({onOpenLogin, onSignOut, accountLabel, accessMode = 'local_preview'}) {
+  const [workspace, setWorkspace] = useState(null);
+  const [page, setPage] = useState(readPage);
+  const [libraryView, setLibraryView] = useState({company: null, query: '', type: 'all', year: 'all'});
+  const [chat, setChat] = useState(null);
+  const [themeSession, setThemeSession] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const [toast, setToast] = useState('');
+  const [modal, setModal] = useState(null);
+  const [openedDocument, setOpenedDocument] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [renameTarget, setRenameTarget] = useState(null);
+  const [memoryThread, setMemoryThread] = useState(null);
+  const [scopeThread, setScopeThread] = useState(null);
+  const [motionPaused, setMotionPaused] = useState(readMotion);
+  const [trackedThread, setTrackedThread] = useState(null);
+  const readerRequest = useRef(0);
+  const mainRef = useRef(null);
+
+  const refresh = async () => { const data = await api('/api/workspace'); setWorkspace(data); return data; };
+  const load = useCallback(() => {
+    let active = true;
+    setError('');
+    api('/api/workspace').then(data => { if (active) setWorkspace(data); }).catch(err => { if (active) setError(err.message); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.motion = motionPaused ? 'paused' : 'running';
+    try { localStorage.setItem('folio-motion', motionPaused ? 'paused' : 'running'); } catch {}
+  }, [motionPaused]);
+  useEffect(() => { document.documentElement.dataset.theme = 'atelier'; return load(); }, [load]);
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timeout = setTimeout(() => setToast(''), 5000);
+    return () => clearTimeout(timeout);
+  }, [toast]);
+  useEffect(() => { document.title = pageLabels[page] + ' | Folio - Archive vivante'; }, [page]);
+  useEffect(() => {
+    const followHash = () => { const value = window.location.hash.slice(1); if (PAGES.includes(value)) setPage(value); };
+    window.addEventListener('hashchange', followHash);
+    return () => window.removeEventListener('hashchange', followHash);
+  }, []);
+
+  function navigate(next) {
+    if (window.location.hash.slice(1) !== next) window.location.hash = next;
+    const changed = next !== page;
+    setPage(next);
+    setError('');
+    if (changed) {
+      window.scrollTo({top: 0});
+      requestAnimationFrame(() => mainRef.current?.focus({preventScroll: true}));
+    }
+  }
+  function applyThread(thread) {
+    if (thread.kind === 'thematic') setThemeSession(thread); else setChat(thread);
+    setMemoryThread(previous => previous?.id === thread.id ? thread : previous);
+  }
+  async function openThread(id) {
+    if (busy || sending) return;
+    setBusy(true); setError('');
+    try { const thread = await api('/api/threads/' + id); applyThread(thread); navigate(thread.kind === 'thematic' ? 'themes' : 'chat'); }
+    catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  }
+  async function newChat(documentIds = []) {
+    if (!Array.isArray(documentIds)) documentIds = [];
+    if (busy || sending) return;
+    setBusy(true); setError('');
+    try {
+      const thread = await api('/api/threads', json('POST', {kind: 'chat', documentIds}));
+      setChat(thread); setModal(null); navigate('chat'); await refresh();
+      if (documentIds.length) setToast(`Nouvelle conversation : la recherche est limitée à ${plural(documentIds.length, 'document')}.`);
+    } catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  }
+  async function startRun(thread, messageId) {
+    const run = await api(`/api/threads/${thread.id}/run`, json('POST', {messageId}));
+    const updated = await api('/api/threads/' + thread.id);
+    applyThread(updated);
+    if (run.status === 'running') setTrackedThread(thread.id);
+    return run;
+  }
+  async function send(content) {
+    if (sending) return false;
+    setSending(true); setError('');
+    let saved = false;
+    try {
+      let current = page === 'themes' ? themeSession : chat;
+      if (!current) { current = await api('/api/threads', json('POST', {kind: 'chat'})); setChat(current); navigate('chat'); }
+      const result = await api(`/api/threads/${current.id}/messages`, json('POST', {content}));
+      saved = true;
+      applyThread(result.thread);
+      await refresh();
+      await startRun(result.thread, result.thread.messages.at(-1).id);
+      return true;
+    } catch (err) { setError(err.message); return saved; }
+    finally { setSending(false); }
+  }
+  async function retryRun(thread) {
+    if (sending) return;
+    const messageId = thread.lastRun?.messageId || [...thread.messages].reverse().find(message => message.role === 'user')?.id;
+    if (!messageId) return;
+    setSending(true);
+    try { await startRun(thread, messageId); } catch (err) { setError(err.message); } finally { setSending(false); }
+  }
+  async function stopRun(thread) {
+    try { await api(`/api/threads/${thread.id}/run`, {method: 'DELETE'}); applyThread(await api('/api/threads/' + thread.id)); await refresh(); setToast('L’analyse a été arrêtée. Vous pouvez la relancer à tout moment.'); }
+    catch (err) { setError(err.message); }
+  }
+  async function checkBackend() {
+    setWorkspace(previous => previous ? {...previous, backend: {...previous.backend, state: 'checking'}} : previous);
+    try { await api('/api/backend/probe', {method: 'POST'}); } catch (err) { setError(err.message); }
+    finally { await refresh().catch(err => setError(err.message)); }
+  }
+  useEffect(() => {
+    if (!trackedThread) return undefined;
+    let active = true, inFlight = false;
+    const poll = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const updated = await api('/api/threads/' + trackedThread);
+        if (!active) return;
+        setChat(previous => previous?.id === updated.id ? updated : previous);
+        setThemeSession(previous => previous?.id === updated.id ? updated : previous);
+        if (updated.lastRun?.status !== 'running') { setTrackedThread(null); await refresh(); }
+      } catch (err) { if (active) { setTrackedThread(null); setError(err.message); } }
+      finally { inFlight = false; }
+    };
+    const timer = setInterval(poll, 900);
+    poll();
+    return () => { active = false; clearInterval(timer); };
+  }, [trackedThread]);
+  useEffect(() => {
+    if (!workspace) return undefined;
+    const running = workspace.threads.find(thread => thread.runStatus === 'running');
+    if (running && !trackedThread) setTrackedThread(running.id);
+    if (workspace.backend?.state !== 'checking') return undefined;
+    const timer = setTimeout(() => refresh().catch(() => {}), 1500);
+    return () => clearTimeout(timer);
+  }, [workspace, trackedThread]);
+
+  async function changeThread(thread, patch, success) {
+    setError('');
+    try { const updated = await api('/api/threads/' + thread.id, json('PATCH', patch)); applyThread(updated); await refresh(); if (success) setToast(success); return true; }
+    catch (err) { setError(err.message); return false; }
+  }
+  function openMemory(thread) { setMemoryThread(thread); setModal('memory'); }
+  async function retain(thread, message) {
+    try { applyThread(await api(`/api/threads/${thread.id}/memory`, json('POST', {text: message.content.slice(0, 1000), sourceMessageId: message.id}))); await refresh(); setToast('Ce message a été ajouté à la mémoire.'); }
+    catch (err) { setError(err.message); }
+  }
+  async function memoryAction(request, success) {
+    if (!memoryThread || busy) return false;
+    setBusy(true);
+    try { applyThread(await request()); await refresh(); if (success) setToast(success); return true; }
+    catch (err) { setError(err.message); return false; }
+    finally { setBusy(false); }
+  }
+  const addMemory = text => memoryAction(() => api(`/api/threads/${memoryThread.id}/memory`, json('POST', {text})), 'Point ajouté à la mémoire.');
+  const editMemory = (noteId, text) => memoryAction(() => api(`/api/threads/${memoryThread.id}/memory/${noteId}`, json('PATCH', {text})), 'Point corrigé.');
+  const forget = note => memoryAction(() => api(`/api/threads/${memoryThread.id}/memory/${note.id}`, {method: 'DELETE'}), 'Point oublié : il ne sera plus transmis au modèle.');
+  function askDelete(thread) { if (busy || sending) return; setDeleteTarget(thread); setModal('delete'); }
+  async function deleteConversation() {
+    if (!deleteTarget || busy) return;
+    setBusy(true); setError('');
+    try {
+      await api('/api/threads/' + deleteTarget.id, {method: 'DELETE'});
+      if (chat?.id === deleteTarget.id) setChat(null);
+      if (themeSession?.id === deleteTarget.id) setThemeSession(null);
+      else if (themeSession) applyThread(await api('/api/threads/' + themeSession.id));
+      if (memoryThread?.id === deleteTarget.id) setMemoryThread(null);
+      setModal(null);
+      await refresh();
+      setToast('La session et sa mémoire ont été supprimées.');
+    } catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  }
+  function rename(thread) { setRenameTarget(thread); setModal('rename'); }
+  async function saveTitle(title) { if (await changeThread(renameTarget, {title}, 'Titre enregistré.')) setModal(null); }
+  function newTheme() { setModal('theme'); }
+  async function createTheme({theme, sourceThreadIds}) {
+    if (busy) return;
+    setBusy(true); setError('');
+    try { const thread = await api('/api/threads', json('POST', {kind: 'thematic', theme, sourceThreadIds})); setThemeSession(thread); setModal(null); navigate('themes'); await refresh(); }
+    catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  }
+  const closeModal = useCallback(() => { readerRequest.current++; setModal(null); }, []);
+  async function openDocument(id) {
+    const request = ++readerRequest.current;
+    setModal('document'); setOpenedDocument(null);
+    try { const doc = await api('/api/documents/' + id); if (request === readerRequest.current) setOpenedDocument(doc); }
+    catch (err) { if (request === readerRequest.current) { setModal(null); setError(err.message); } }
+  }
+  function chooseDocuments(thread) { setScopeThread(thread || null); setModal('scope'); }
+  async function applyScope(documentIds) {
+    if (!scopeThread) return newChat(documentIds);
+    const message = documentIds.length ? `La recherche est limitée à ${plural(documentIds.length, 'document')}.` : 'La recherche porte de nouveau sur tout le corpus.';
+    if (await changeThread(scopeThread, {documentIds}, message)) setModal(null);
+  }
+
+  const documents = workspace?.documents || [], threads = workspace?.threads || [];
+  const chats = threads.filter(item => item.kind === 'chat'), themes = threads.filter(item => item.kind === 'thematic');
+  const backend = workspace?.backend || {connected: false};
+  const activity = {chat: chats.some(item => item.runStatus === 'running'), themes: themes.some(item => item.runStatus === 'running')};
+  const panelProps = {
+    backend, sending, documents,
+    onCheckBackend: checkBackend, onRetryRun: retryRun, onStopRun: stopRun,
+    onClearScope: thread => changeThread(thread, {documentIds: []}, 'La recherche porte de nouveau sur tout le corpus.'),
+    onChooseDocuments: chooseDocuments, onSend: send, onMemory: openMemory, onRetain: retain,
+    onPriority: (thread, priority) => changeThread(thread, {priority}),
+    onRename: rename, onDelete: askDelete, onOpenDocument: openDocument,
+  };
+
   return <div className="folio-app" data-page={page}>
-    {sidebar&&<div className="navigation-scrim" onClick={()=>setSidebar(false)}/>}
-    <aside className={'app-navigation '+(sidebar?'open':'')}><a href="#accueil" className="app-brand" onClick={event=>{event.preventDefault();navigate('home');}}><FolioMark size={27}/><span>folio<span className="brand-dot">.</span><small>ARCHIVE VIVANTE</small></span></a><nav aria-label="Navigation principale">{[['home',Home,'Accueil'],['library',Library,'Bibliothèque'],['chat',MessageSquare,'Conversations'],['themes',FileText,'Résumés thématiques']].map(([id,Icon,label],index)=><button key={id} className={page===id?'active':''} aria-current={page===id?'page':undefined} onClick={()=>navigate(id)}><span className="nav-index">0{index}</span><Icon size={16}/><span>{label}</span></button>)}</nav><button className="new-chat-button" onClick={newChat} disabled={busy||sending}><Plus size={16}/>Nouvelle conversation</button><div className="navigation-bottom"><span className="local-dot"/><span>Votre espace local<small>{documents.length} documents · {chats.length} conversations</small></span></div></aside>
-    <div className="app-content"><PageScenery page={page}/><header className="app-topbar"><div><button className="small-icon mobile-navigation" aria-label="Ouvrir la navigation" onClick={()=>setSidebar(true)}><Menu size={20}/></button><span>Archive vivante</span><ChevronRight size={12}/><strong>{labels[page]}</strong></div><div className="topbar-actions">{onOpenLogin&&<button className="connection-shortcut" onClick={onOpenLogin} aria-label="Afficher la page de connexion"><UserRound size={14}/><span>Connexion</span></button>}<MotionControl paused={motionPaused} onChange={setMotionPaused}/><span className="topbar-state"><i/>{accessMode==='local_preview'?'Aperçu local':'Espace personnel'}</span></div></header>
-      {error&&<div className="app-error" role="alert"><span>{error}</span><button aria-label="Fermer le message" onClick={()=>setError('')}><X size={15}/></button></div>}
-      {!workspace?<div className="app-loading"><FolioMark size={35}/><p>Ouverture de votre espace…</p>{error&&<button className="button-primary" onClick={()=>window.location.reload()}>Réessayer</button>}</div>:<main>
-        {page==='home'&&<HomePage workspace={workspace} onNavigate={navigate} onNewChat={()=>newChat()} onNewTheme={newTheme}/>}
-        {page==='library'&&<div className="library-page"><header className="simple-heading"><div><span className="eyebrow">01 / VOTRE BIBLIOTHÈQUE</span><h1>Vos documents,<br/><em>par entreprise.</em></h1><p>Ouvrez un dossier pour consulter les rapports qu’il contient.</p></div><div className="library-book"><BookSculpture/></div></header><div className="library-filter"><label><Search size={16}/><input aria-label="Rechercher dans les documents" placeholder="Rechercher un titre, une année…" value={query} onChange={event=>setQuery(event.target.value)}/></label><span>{documents.length} documents · {workspace.companies.length} entreprises</span></div>
-          {company?<><button className="back-link" onClick={()=>setCompany(null)}><ArrowLeft size={14}/>Toutes les entreprises</button><div className="company-heading"><FolderOpen size={25}/><div><h2>{companyLabel(company)}</h2><span>{filteredDocs.length} document{filteredDocs.length>1?'s':''}</span></div></div></>:<div className="company-folders">{workspace.companies.map(name=>{const docs=documents.filter(doc=>doc.company===name);return <button className={'company-folder company-'+name} key={name} onClick={()=>{setCompany(name);setQuery('');}}><span className="folder-tab"/><div className="folder-top"><Folder size={27}/><span>{String(docs.length).padStart(2,'0')}</span></div><h2>{companyLabel(name)}</h2><div className="folder-bottom"><span>{docs.length} documents</span><ArrowUpRight size={18}/></div></button>;})}</div>}
-          {(company||query)&&<div className="library-document-list"><div className="document-list-heading"><span>{company?'Documents':'Résultats de recherche'}</span><span>CONSULTATION</span></div>{filteredDocs.map(doc=><div className="library-document-row" key={doc.id}><button className="library-document" onClick={()=>openDocument(doc.id)}><span className="document-glyph"><FileText size={19}/></span><div><strong>{doc.name}</strong><small>{companyLabel(doc.company)} · {doc.type} · {doc.year}{doc.hasPdf?' · PDF original':''}</small></div><span className="open-document-label">Ouvrir</span><ArrowUpRight size={15}/></button><button className="document-chat-link" onClick={()=>newChat([doc.id])} aria-label={'Préparer un chat avec '+doc.name}><MessageSquare size={15}/><span>Chat PDF</span></button></div>)}{!filteredDocs.length&&<div className="simple-empty"><Search size={25}/><p>Aucun document correspondant.</p><button className="text-button" onClick={()=>setQuery('')}>Effacer la recherche</button></div>}</div>}
-        </div>}
-        {page==='chat'&&<><PageHeading number="02" title="Une question." emphasis="Des perspectives." description="Posez vos questions : les passages utiles sont recherchés automatiquement dans vos archives."/><div className="conversations-page"><ChatHistory threads={chats} activeId={chat?.id} onSelect={openThread} onCreate={newChat} onDelete={askDelete} busy={busy||sending}/><ChatPanel thread={chat} {...panelProps}/></div>{(ragLoading||(ragPacket&&ragPacket.threadId===chat?.id))&&<RagPreparationView packet={ragPacket} loading={ragLoading}/>}</>}
-        {page==='themes'&&<div className="themes-page">{themeSession?<><PageHeading number="03" title="Croiser les lectures." emphasis="Éclairer un thème." description={themeSession.theme}/><div className="theme-session-bar"><button className="back-link" onClick={()=>setThemeSession(null)}><ArrowLeft size={14}/>Toutes les sessions thématiques</button><span>Nouvelle session · historique séparé</span></div><div className="thematic-workspace"><ChatPanel thread={themeSession} {...panelProps}/><aside className="theme-preparation"><span className="eyebrow">PRÉPARATION DU RÉSUMÉ</span><h2>{themeSession.theme}</h2><p>Cette session est indépendante. Les points ci-dessous viennent uniquement des conversations que vous avez associées.</p><div className="linked-chats">{themeSession.sourceThreadIds.length?themeSession.sourceThreadIds.map(id=>{const source=chats.find(item=>item.id===id);return source?<button key={id} onClick={()=>openThread(id)}><MessageSquare size={13}/>{source.title}<ArrowUpRight size={12}/></button>:null;}):<span>Aucune conversation associée.</span>}</div><h3>Éléments à retenir</h3>{themeSession.linkedNotes.length?themeSession.linkedNotes.map(note=><div className="linked-memory" key={note.sourceThreadId+note.id}><small>{note.sourceThreadTitle}</small><p>{note.text}</p></div>):<div className="preparation-empty">Les points importants des conversations associées apparaîtront ici.</div>}<div className="summary-pending"><span className="quiet-status"/>{backend.connected?'Envoyez votre demande pour lancer la recherche et la synthèse.':'Le modèle IA doit être disponible pour lancer cette synthèse.'}</div></aside></div>{(ragLoading||(ragPacket&&ragPacket.threadId===themeSession?.id))&&<RagPreparationView packet={ragPacket} loading={ragLoading}/>}<AgentTransparency plan={themeSession.agentPlan}/></>:<><header className="simple-heading compact-heading"><div><span className="eyebrow">03 / RÉSUMÉS THÉMATIQUES</span><h1>Un thème.<br/><em>Une nouvelle session.</em></h1><p>Préparez un résumé séparé, avec les points importants des échanges que vous choisissez.</p></div><button className="button-primary" onClick={()=>{setTheme('');setAssociated([]);setModal('theme');}}><Plus size={16}/>Nouvelle session</button></header><div className="theme-session-list">{themes.map((item,index)=><article className="theme-session-card" key={item.id}><div className="theme-card-number">{String(index+1).padStart(2,'0')}</div><button onClick={()=>openThread(item.id)} disabled={busy}><span className="eyebrow">SESSION THÉMATIQUE</span><h2>{item.title}</h2><p>{item.sourceThreadIds.length} conversation{item.sourceThreadIds.length>1?'s':''} associée{item.sourceThreadIds.length>1?'s':''} · {item.linkedMemoryCount} point{item.linkedMemoryCount>1?'s':''} disponible{item.linkedMemoryCount>1?'s':''}</p><span className="theme-card-open">Ouvrir la session<ArrowUpRight size={15}/></span></button><button className="small-icon danger-hover theme-card-delete" disabled={busy||sending} aria-label={'Supprimer la session '+item.title} onClick={()=>askDelete(item)}><Trash2 size={15}/></button></article>)}</div>{!themes.length&&<div className="simple-empty thematic-empty"><FileText size={31}/><h2>Le premier thème reste à ouvrir.</h2><p>Les résumés auront leur propre session, sans mélanger les historiques de chat.</p><button className="button-secondary" onClick={()=>{setTheme('');setAssociated([]);setModal('theme');}}>Préparer une session<Plus size={14}/></button></div>}</>}
-        </div>}
-      </main>}
+    <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); mainRef.current?.focus(); }}>Aller au contenu</a>
+    <aside className="app-navigation" aria-label="Navigation principale">
+      <a href="#home" className="app-brand" aria-label="Folio — accueil" onClick={event => { event.preventDefault(); navigate('home'); }}><FolioMark size={27}/><span aria-hidden="true">folio<span className="brand-dot">.</span><small>ARCHIVE VIVANTE</small></span></a>
+      <nav aria-label="Sections">{NAVIGATION.map(([id, Icon, label, short], index) => <button key={id} className={page === id ? 'active' : ''} aria-current={page === id ? 'page' : undefined} onClick={() => navigate(id)} title={label}>
+        <span className="nav-index" aria-hidden="true">0{index}</span><Icon size={18} aria-hidden="true"/><span className="nav-label">{label}</span><span className="nav-short" aria-hidden="true">{short}</span>
+        {activity[id] && <><i className="nav-activity" aria-hidden="true"/><span className="sr-only"> (analyse en cours)</span></>}
+      </button>)}</nav>
+      <button className="new-chat-button" onClick={() => newChat()} disabled={busy || sending} title="Nouvelle conversation"><Plus size={16}/><span className="new-chat-label">Nouvelle conversation</span></button>
+      <div className="navigation-bottom"><span className="local-dot"/><span>Votre espace local<small>{plural(documents.length, 'document')} · {plural(chats.length, 'conversation')} · {plural(themes.length, 'session')}</small></span></div>
+    </aside>
+    <div className="app-content">
+      <PageScenery page={page}/>
+      <header className="app-topbar">
+        <div className="topbar-context">
+          <a href="#home" className="topbar-brand" aria-label="Folio — accueil" onClick={event => { event.preventDefault(); navigate('home'); }}><FolioMark size={22}/></a>
+          <span className="topbar-trail">Archive vivante</span><ChevronRight size={12} className="topbar-trail" aria-hidden="true"/><strong>{pageLabels[page]}</strong>
+        </div>
+        <div className="topbar-actions">
+          {workspace && <BackendChip backend={backend} onCheck={checkBackend}/>}
+          <MotionControl paused={motionPaused} onChange={setMotionPaused}/>
+          <span className="topbar-account" title={accountLabel ? 'Connecté : ' + accountLabel : undefined}><UserRound size={13} aria-hidden="true"/><span>{accountLabel || (accessMode === 'local_preview' ? 'Aperçu local' : 'Espace personnel')}</span></span>
+          {onSignOut && <button className="connection-shortcut" onClick={async () => { try { await onSignOut(); } catch (err) { setError(err.message); } }} title={accountLabel ? 'Se déconnecter de ' + accountLabel : 'Se déconnecter'} aria-label="Se déconnecter"><LogOut size={14}/><span>Déconnexion</span></button>}
+          {onOpenLogin && <button className="connection-shortcut" onClick={onOpenLogin} aria-label="Afficher la page de connexion"><UserRound size={14}/><span>Connexion</span></button>}
+        </div>
+      </header>
+      {error && <div className="app-error" role="alert"><span>{error}</span><button aria-label="Fermer le message" onClick={() => setError('')}><X size={15}/></button></div>}
+      {!workspace ? <div className="app-loading" role="status"><FolioMark size={35}/><p>{error ? 'L’espace n’a pas pu être ouvert.' : 'Ouverture de votre espace…'}</p>{error && <button className="button-primary" onClick={load}>Réessayer</button>}</div>
+        : <main id="main-content" ref={mainRef} tabIndex={-1}>
+          <ErrorBoundary resetKey={page}>
+            {page === 'home' && <HomePage workspace={workspace} backend={backend} busy={busy} onNavigate={navigate} onNewChat={() => newChat()} onNewTheme={newTheme} onOpenThread={openThread} onCheckBackend={checkBackend}/>}
+            {page === 'library' && <LibraryPage workspace={workspace} view={libraryView} onViewChange={patch => setLibraryView(previous => ({...previous, ...patch}))} busy={busy} sending={sending} onOpenDocument={openDocument} onNewChat={newChat}/>}
+            {page === 'chat' && <ChatPage threads={chats} thread={chat} busy={busy} sending={sending} panelProps={panelProps} onSelect={openThread} onCreate={() => newChat()} onDelete={askDelete} onClose={() => setChat(null)}/>}
+            {page === 'themes' && <ThemesPage themes={themes} chats={chats} session={themeSession} backend={backend} busy={busy} sending={sending} panelProps={panelProps} onOpenThread={openThread} onCloseSession={() => setThemeSession(null)} onNewTheme={newTheme} onDelete={askDelete}/>}
+          </ErrorBoundary>
+        </main>}
     </div>
-    {modal==='document'&&<Modal title={document?.name||'Ouvrir le document'} onClose={closeModal} className="document-modal">{document?<><div className="document-viewer-toolbar"><button className="text-button" onClick={()=>newChat([document.id])} disabled={busy||sending}><MessageSquare size={14}/>Discuter de ce PDF</button><div className="format-tabs">{document.hasPdf&&<button className={format==='pdf'?'active':''} onClick={()=>setFormat('pdf')}>PDF original</button>}{document.hasText&&<button className={format==='text'?'active':''} onClick={()=>setFormat('text')}>Texte</button>}</div><a className="text-button" href={format==='pdf'?`/api/documents/${document.id}/pdf?download=1`:`/api/documents/${document.id}?download=1`} download><ArrowDownToLine size={14}/>Télécharger</a></div>{format==='pdf'?<iframe className="pdf-viewer" title={document.name} src={`/api/documents/${document.id}/pdf`}/>:<div className="document-text"><Markdown text={expanded?document.content:document.content.slice(0,100000)}/>{!expanded&&document.content.length>100000&&<button className="button-secondary" onClick={()=>setExpanded(true)}>Afficher la suite</button>}</div>}</>:<div className="simple-empty"><FileText size={25}/><p>Ouverture du document…</p></div>}</Modal>}
-    {modal==='pdfs'&&<Modal title="Les documents de cet échange." onClose={closeModal}><p className="modal-description">Choisissez jusqu’à huit documents. La recherche sera limitée à cette sélection. Sans sélection, tout le corpus est disponible.</p><form onSubmit={savePdfs}><div className="associated-choices pdf-selection-list">{documents.map(doc=><label key={doc.id}><input type="checkbox" checked={pdfSelection.includes(doc.id)} disabled={!pdfSelection.includes(doc.id)&&pdfSelection.length>=8} onChange={()=>setPdfSelection(previous=>previous.includes(doc.id)?previous.filter(id=>id!==doc.id):[...previous,doc.id])}/><span><strong>{doc.name}</strong><small>{companyLabel(doc.company)} · {doc.hasText?'Texte disponible':'Extraction à raccorder'}</small></span></label>)}</div><div className="form-footer"><span>{pdfSelection.length} / 8</span><button type="button" className="button-secondary" onClick={closeModal}>Annuler</button><button className="button-primary" disabled={busy}>Appliquer</button></div></form></Modal>}
-    {modal==='theme'&&<Modal title="Une nouvelle session thématique." onClose={closeModal}><p className="modal-description">L’historique commence ici. Vous pouvez y associer les points importants de certaines conversations.</p><form className="theme-form" onSubmit={createTheme}><label className="field-label" htmlFor="new-theme">Le thème</label><input id="new-theme" className="text-field" value={theme} onChange={event=>setTheme(event.target.value)} placeholder="Ex. Rentabilité, investissements, stratégie…" minLength={2} maxLength={120} required/><div className="theme-shortcuts">{['Résultats financiers','Investissements IA','Risques et perspectives'].map(value=><button type="button" key={value} onClick={()=>setTheme(value)}>{value}</button>)}</div><span className="field-label associated-heading">Conversations à associer <small>Facultatif</small></span><div className="associated-choices">{chats.map(item=><label key={item.id}><input type="checkbox" checked={associated.includes(item.id)} onChange={()=>setAssociated(previous=>previous.includes(item.id)?previous.filter(id=>id!==item.id):[...previous,item.id])}/><span><strong>{item.title}</strong><small>{item.memoryCount} point{item.memoryCount>1?'s':''} retenu{item.memoryCount>1?'s':''}</small></span></label>)}{!chats.length&&<p>Aucune conversation pour l’instant. Vous pouvez créer une session indépendante.</p>}</div><div className="form-footer"><button type="button" className="button-secondary" onClick={closeModal}>Annuler</button><button className="button-primary" type="submit" disabled={busy||theme.trim().length<2}><Plus size={15}/>Créer la session</button></div></form></Modal>}
-    {modal==='delete'&&deleteTarget&&<Modal title="Supprimer cette session ?" onClose={closeModal}><p className="modal-description"><strong>{deleteTarget.title}</strong></p><div className="delete-explanation"><p>La conversation et sa mémoire seront supprimées de cet espace.</p>{deleteTarget.kind==='chat'&&<p>Ses points retenus seront également retirés des sessions thématiques associées.</p>}<p>Cette suppression est définitive.</p></div><div className="form-footer"><button className="button-secondary" onClick={closeModal} disabled={busy}>Conserver</button><button className="button-danger" onClick={deleteConversation} disabled={busy}><Trash2 size={15}/>Supprimer la session</button></div></Modal>}
-    {modal==='rename'&&renameTarget&&<Modal title="Renommer la conversation." onClose={closeModal}><form onSubmit={saveTitle}><label className="field-label" htmlFor="thread-title">Titre</label><input className="text-field" id="thread-title" value={title} onChange={event=>setTitle(event.target.value)} minLength={1} maxLength={120} required/><div className="form-footer"><button className="button-secondary" type="button" onClick={closeModal}>Annuler</button><button className="button-primary" disabled={!title.trim()}><Check size={15}/>Enregistrer</button></div></form></Modal>}
-    {modal==='memory'&&memoryThread&&<Modal title="La mémoire de cet échange." onClose={closeModal} className="memory-modal"><p className="modal-description">Les objectifs, préférences et décisions sont repérés localement dans vos messages. Vous gardez la main sur chaque point retenu.</p><div className="memory-session-title"><MessageSquare size={15}/>{memoryThread.title}<span>{priorities[memoryThread.effectivePriority]}</span></div><div className="memory-notes">{memoryThread.memory.map(note=><article className="memory-note" key={note.id}><div className="memory-note-top"><span>{noteLabels[note.type]||'Point retenu'}</span><small>{note.method==='local_rules'?'Repéré dans vos messages':'Conservé par vous'}</small></div>{editingNote===note.id?<form onSubmit={editMemory}><label className="sr-only" htmlFor={'memory-edit-'+note.id}>Corriger ce point</label><textarea className="text-field" id={'memory-edit-'+note.id} value={editText} onChange={event=>setEditText(event.target.value)} minLength={3} maxLength={1000}/><div className="memory-edit-actions"><button type="button" className="text-button" onClick={()=>setEditingNote(null)}>Annuler</button><button className="text-button" type="submit" disabled={busy||editText.trim().length<3}><Check size={13}/>Enregistrer</button></div></form>:<><p>{note.text}</p><div className="memory-note-actions"><button onClick={()=>{setEditingNote(note.id);setEditText(note.text);}}><Pencil size={12}/>Corriger</button><button onClick={()=>forget(note)} disabled={busy}><Trash2 size={12}/>Oublier</button></div></>}</article>)}{!memoryThread.memory.length&&<div className="simple-empty"><Brain size={27}/><p>Aucun point retenu pour le moment.</p><small>Utilisez « Retenir » dans le chat ou ajoutez un point ci-dessous.</small></div>}</div><form className="add-memory-form" onSubmit={addMemory}><label className="field-label" htmlFor="memory-point">Ajouter un point important</label><textarea className="text-field" id="memory-point" value={memoryText} onChange={event=>setMemoryText(event.target.value)} placeholder="Un objectif, une préférence, une décision à conserver…" minLength={3} maxLength={1000} rows={2}/><button className="button-primary" type="submit" disabled={busy||memoryText.trim().length<3}><Plus size={14}/>Retenir ce point</button></form><p className="memory-footnote">Les points sont liés à cette conversation. Ils sont effacés si vous la supprimez. La mémoire utilise actuellement des règles locales ; sa synthèse sémantique reste à ajouter.</p></Modal>}
-    {toast&&<div className="app-toast" role="status"><Check size={16}/>{toast}<button aria-label="Fermer la notification" onClick={()=>setToast('')}><X size={13}/></button></div>}
+    {modal === 'document' && <DocumentModal document={openedDocument} busy={busy} sending={sending} onClose={closeModal} onNewChat={newChat}/>}
+    {modal === 'scope' && <ScopeModal documents={documents} thread={scopeThread} busy={busy} onClose={closeModal} onApply={applyScope}/>}
+    {modal === 'theme' && <ThemeModal chats={chats} busy={busy} onClose={closeModal} onCreate={createTheme}/>}
+    {modal === 'delete' && deleteTarget && <DeleteModal target={deleteTarget} busy={busy} onClose={closeModal} onConfirm={deleteConversation}/>}
+    {modal === 'rename' && renameTarget && <RenameModal target={renameTarget} onClose={closeModal} onSave={saveTitle}/>}
+    {modal === 'memory' && memoryThread && <MemoryModal thread={memoryThread} busy={busy} onClose={closeModal} onAdd={addMemory} onEdit={editMemory} onForget={forget}/>}
+    {toast && <div className="app-toast" role="status"><Check size={16}/><span>{toast}</span><button aria-label="Fermer la notification" onClick={() => setToast('')}><X size={13}/></button></div>}
   </div>;
 }

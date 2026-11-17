@@ -20,7 +20,17 @@ Les scènes de lecture en fond sont discrètes, ignorées par les lecteurs d’�
 
 Les cartes d’agents exposent la tâche, les permissions et le livrable attendu. Le journal reçoit les événements réels du worker Python. Les citations des réponses contrôlées restent consultables même si le fournisseur devient indisponible. Le panneau de préparation RAG affiche les contrôles effectivement effectués et leurs limites.
 
-Les interfaces s’adaptent aux petits écrans : navigation escamotable, livre sous le titre, cartes en colonne, historique au-dessus du chat et rôles empilés.
+## Adaptation aux écrans (révision de novembre 2026)
+
+- **Navigation en trois formes.** Barre latérale à partir de 1 100 px ; rail d’icônes légendées entre 801 et 1 099 px et sur les téléphones en paysage (hauteur ≤ 500 px) ; barre d’onglets en bas d’écran sur téléphone et tablette en portrait. Un point oxyde signale sur l’onglet concerné une analyse réellement en cours.
+- **Conversations.** Sur ordinateur et tablette, l’historique et l’échange occupent exactement la hauteur restante sous l’en-tête. Sur téléphone et en paysage, la liste s’affiche d’abord, puis l’échange choisi avec un retour « Toutes les conversations » ; la page défile et la zone de saisie reste collée au bas de l’écran.
+- **Fenêtres de dialogue.** Centrées sur grand écran, elles deviennent des panneaux ancrés en bas sur téléphone ; le lecteur de document y occupe tout l’écran et ouvre le texte extrait par défaut, avec un accès « Nouvel onglet » pour le PDF.
+- **Lisibilité.** Aucun texte d’interface sous 11 px ; les tailles sont en `rem` et suivent la préférence du navigateur ; lecture des messages à 15–16 px ; champs à 16 px au doigt pour éviter le zoom automatique. Les cibles mesurent 40 px au pointeur et 44 px au doigt. Les couleurs de texte respectent un contraste d’au moins 4,5:1 sur chaque palette.
+- **Zones sûres.** Les marges intègrent `env(safe-area-inset-*)` (encoches, barre d’accueil).
+
+## Rien sans voix
+
+Chaque état s’explique avec des données réelles : état du modèle IA dans la barre supérieure et sur l’accueil, compteurs du corpus et de la mémoire, reprise des derniers échanges, dates relatives, étapes d’analyse avec leur durée réelle, passages consultés, sources numérotées avec page, titres de rapports lisibles (« Meta — 10-K 2024 »), filtres par type et par exercice, export Markdown des échanges, confirmation avant d’oublier un point de mémoire, compteur de caractères à l’approche des limites. Aucune progression n’est simulée.
 
 ## Scène de lecture
 
