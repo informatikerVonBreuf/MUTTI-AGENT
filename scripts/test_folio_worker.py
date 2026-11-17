@@ -58,6 +58,27 @@ class FolioWorkerTests(unittest.TestCase):
         self.assertEqual(result["claims"][0]["evidenceId"], "p1")
         self.assertEqual(event.call_args_list[-1].args[:2], ("verifier", "completed"))
 
+    def test_follow_up_question_inherits_previous_company_and_period(self):
+        follow_up = "Et quel est le résultat opérationnel sur la même période ?"
+        context = {"recentMessages": [
+            {"role": "user", "content": "Quel est le chiffre d’affaires total d’Amazon pour l’exercice 2024 ?"},
+            {"role": "assistant", "content": "637 959 millions de dollars [1]"},
+            {"role": "user", "content": follow_up}]}
+        with patch.object(worker, "request_model", side_effect=[{"claims": [dict(CLAIM)]}, {"approvedIndices": [0]}]) as model, patch.object(worker, "retrieve", return_value={"passages": [PASSAGE]}) as retrieve, patch.object(worker, "event"):
+            worker.run_chat({"question": follow_up, "context": context})
+        query = retrieve.call_args.args[0]
+        self.assertTrue(query.startswith(follow_up))
+        self.assertIn("Amazon", query)
+        self.assertIn("2024", query)
+        self.assertIn("Amazon", model.call_args_list[1].args[1]["question"])
+
+    def test_self_contained_question_is_searched_as_asked(self):
+        question = "Quel est le chiffre d’affaires de Meta en 2024 ?"
+        context = {"recentMessages": [{"role": "user", "content": "Ventes d’Apple en 2023 ?"}, {"role": "user", "content": question}]}
+        self.assertEqual(worker.chat_question({"question": question, "context": context}), question)
+        self.assertEqual(worker.chat_question({"question": "Et ensuite ?", "context": {}}), "Et ensuite ?")
+        self.assertEqual(worker.chat_question({"question": "Et ensuite ?", "context": {"recentMessages": [{"role": "user", "content": "Bonjour"}]}}), "Et ensuite ?")
+
     def test_writer_cannot_select_an_invented_claim(self):
         responses = [{"axes": ["Revenus"]}, {"claims": [dict(CLAIM)]}, {"approvedIndices": [0]}, {"selectedIndices": [99]}]
         with patch.object(worker, "request_model", side_effect=responses), patch.object(worker, "retrieve", return_value={"passages": [PASSAGE]}), patch.object(worker, "event"):

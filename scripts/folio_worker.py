@@ -342,14 +342,39 @@ def evidence_payload(claims, passages):
     return {"claims": claims, "passages": [p["id"] for p in passages]}
 
 
+COMPANY_NAME = re.compile(r"\b(meta|facebook|google|alphabet|apple|amazon)\b", re.IGNORECASE)
+YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+
+
+def chat_question(job):
+    """Une relance (« et sur la même période ? ») reprend la dernière question de l'utilisateur.
+
+    Sans cela, la recherche et le vérificateur ne savent pas de quelle entreprise ni de quelle période
+    il s'agit. La reprise n'a lieu que si la relance ne nomme pas elle-même une entreprise et une année.
+    """
+    question = job["question"]
+    if (COMPANY_NAME.search(question) and YEAR.search(question)) or len(question) > 3600:
+        return question
+    asked = [m["content"] for m in job.get("context", {}).get("recentMessages", [])
+             if isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str)]
+    if asked and asked[-1].strip() == question.strip():
+        asked = asked[:-1]
+    previous = next((text for text in reversed(asked) if COMPANY_NAME.search(text) or YEAR.search(text)), None)
+    if not previous:
+        return question
+    return question + "\nQuestion précédente : " + " ".join(previous.split())[:300]
+
+
 def run_chat(job):
     """Chat : serveur → chercheur → vérificateur → serveur, chaque transfert signé et vérifié."""
+    question = chat_question(job)
+
     @traced("researcher", role="researcher")
     def research():
         open_handoff("researcher", job.get("envelope"), {"question": job["question"]})
         event("researcher", "running", "retrieve_passages")
-        packet = retrieve(job["question"])
-        claims = make_claims(job["question"], packet, job.get("context", {}))
+        packet = retrieve(question)
+        claims = make_claims(question, packet, job.get("context", {}))
         event("researcher", "completed", "retrieve_passages")
         if not claims:
             raise WorkerError("NO_EVIDENCE")
@@ -358,7 +383,7 @@ def run_chat(job):
     def check(state):
         open_handoff("verifier", state.get("envelope"), evidence_payload(state["claims"], state["passages"]))
         event("verifier", "running", "inspect_evidence")
-        approved = verify_claims(job["question"], state["claims"], state["passages"])
+        approved = verify_claims(question, state["claims"], state["passages"])
         event("verifier", "completed", "inspect_evidence")
         return handoff("verifier", "server", {"claims": approved}, {"approved": approved})
     approved = check(research())["approved"]
