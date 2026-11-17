@@ -1,12 +1,88 @@
-services:
-  qdrant:
-    image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrant_data:/qdrant/storage
+# Folio / Archive vivante — pile locale.
+#   docker compose up --build        puis http://localhost:8080
+# Seul le frontend est publié. Backend et Qdrant restent sur le réseau interne ;
+# le backend a en plus une sortie Internet pour Gemini et, si FOLIO_TRACING=on, LangSmith.
+# Les clés sont lues dans le fichier .env de la racine, monté comme secret (jamais copié dans une image).
 
+name: folio
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    image: folio-frontend:local
+    ports:
+      - "127.0.0.1:${FOLIO_PUBLIC_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [public, internal]
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
 
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    image: folio-backend:local
+    environment:
+      FOLIO_ENV_FILE: /run/secrets/folio_env
+      FOLIO_PROVIDER: ${FOLIO_PROVIDER:-gemini}
+      FOLIO_TRACING: ${FOLIO_TRACING:-off}
+      FOLIO_LANGSMITH_PROJECT: ${FOLIO_LANGSMITH_PROJECT:-folio-dev}
+      FOLIO_SECURE_COOKIES: ${FOLIO_SECURE_COOKIES:-0}
+      QDRANT_URL: http://qdrant:6333
+    secrets:
+      - folio_env
+    volumes:
+      - runtime:/data/runtime
+      - ./data/rag-data:/app/data/rag-data:ro
+    networks: [internal, egress]
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  # Déclaré pour la recherche vectorielle à venir ; la recherche actuelle est BM25 dans le backend.
+  qdrant:
+    image: qdrant/qdrant:v1.18.2@sha256:75eab8c4ba42096724fdcfde8b4de0b5713d529dde32f285a1f86fdcb2c9e50c
+    environment:
+      QDRANT__SERVICE__API_KEY: ${FOLIO_QDRANT_API_KEY:-}
+      QDRANT__TELEMETRY_DISABLED: "true"
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - qdrant_snapshots:/qdrant/snapshots
+    networks: [internal]
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 15s
+      timeout: 4s
+      retries: 4
+    restart: unless-stopped
+
+secrets:
+  folio_env:
+    file: ./.env
+
+networks:
+  public: {}
+  egress: {}
+  internal:
+    internal: true
+
 volumes:
+  runtime:
   qdrant_data:
+  qdrant_snapshots:

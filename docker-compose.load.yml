@@ -1,0 +1,32 @@
+# Pile de test de charge : fournisseur simulé, volume séparé, k6 sur le réseau interne.
+#   docker compose -f docker-compose.yml -f docker-compose.load.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.load.yml run --rm k6
+#   docker compose -f docker-compose.yml -f docker-compose.load.yml --profile load down -v
+# Aucun appel facturé ; le compte de charge vit dans le volume load_runtime.
+services:
+  backend:
+    environment:
+      FOLIO_PROVIDER: simulated
+      FOLIO_SIMULATED_DELAY_MS: ${FOLIO_SIMULATED_DELAY_MS:-350}
+      FOLIO_TRACING: "off"
+    volumes:
+      - load_runtime:/data/runtime
+
+  k6:
+    image: grafana/k6:1.3.0@sha256:3ddc8b1a33a2c3d8edc6e99b6a762ae36cba08788463458f5e6a7703e14eb77d
+    profiles: [load]
+    depends_on:
+      frontend:
+        condition: service_healthy
+    environment:
+      BASE_URL: http://frontend:8080
+      PUBLIC_ORIGIN: http://localhost:8080
+      MAX_VUS: ${MAX_VUS:-10}
+    volumes:
+      - ./interface/load:/scripts:ro
+      - ./interface/load/results:/results
+    networks: [internal]
+    command: ["run", "/scripts/folio.k6.js"]
+
+volumes:
+  load_runtime:

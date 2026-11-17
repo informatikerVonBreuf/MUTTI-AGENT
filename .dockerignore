@@ -1,0 +1,21 @@
+# Rien de secret ni de volumineux dans le contexte de build Docker.
+**/.env
+**/.env.*
+.git
+**/node_modules
+**/dist
+**/.runtime
+**/__pycache__
+**/*.pyc
+*.ipynb
+*.zip
+*.gif
+*.excalidraw
+data
+agent_files
+research_outputs
+00 Deep Agents PPT
+00 Introduction
+01 Agent Foundation
+PROMPT-CLAUDE-CODE.md
+interface/load/results

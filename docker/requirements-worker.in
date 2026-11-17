@@ -1,0 +1,6 @@
+# Dependances du worker Python Folio (scripts/folio_worker.py) uniquement.
+# Regenerer : voir docker/README.md
+langgraph==1.1.6
+langchain-core==1.2.31
+langsmith==0.7.32
+
