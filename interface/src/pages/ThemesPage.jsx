@@ -1,10 +1,11 @@
 import React from 'react';
-import {ArrowLeft, ArrowUpRight, Download, FileText, MessageSquare, Plus, Trash2} from 'lucide-react';
+import {ArrowLeft, ArrowUpRight, Download, FileText, MessageSquare, Plus, Printer, Trash2} from 'lucide-react';
 import ChatPanel from '../ChatPanel.jsx';
 import AgentTransparency from '../AgentTransparency.jsx';
 import {PageHeading} from '../components/PageChrome.jsx';
 import {useNow} from '../components/Primitives.jsx';
 import {downloadThread} from '../export.mjs';
+import {downloadDocx} from '../export-docx.mjs';
 import {formatFullDate, formatRelative, plural} from '../format.mjs';
 
 const sessionStates = {
@@ -29,7 +30,12 @@ export default function ThemesPage({themes, chats, session, backend = {}, busy, 
       <div className="theme-session-bar">
         <button className="back-link" onClick={onCloseSession}><ArrowLeft size={14}/>Toutes les sessions thématiques</button>
         <span>Session indépendante · ouverte <time dateTime={session.createdAt} title={formatFullDate(session.createdAt)}>{formatRelative(session.createdAt, now)}</time> · historique séparé</span>
-        {answers > 0 && <button className="text-button" onClick={() => downloadThread(session, panelProps.documents)}><Download size={14}/>Exporter le résumé (.md)</button>}
+        {answers > 0 && <span className="report-exports" role="group" aria-label="Exporter le rapport">
+          <span>Exporter le rapport :</span>
+          <button className="text-button" onClick={() => downloadDocx(session, panelProps.documents)}><Download size={14}/>Word (.docx)</button>
+          <button className="text-button" onClick={() => window.print()} title="Choisissez « Enregistrer au format PDF » dans la fenêtre d’impression"><Printer size={14}/>PDF (impression)</button>
+          <button className="text-button" onClick={() => downloadThread(session, panelProps.documents)}><Download size={14}/>Markdown (.md)</button>
+        </span>}
       </div>
       <div className="thematic-workspace">
         <ChatPanel thread={session} {...panelProps}/>
@@ -48,7 +54,7 @@ export default function ThemesPage({themes, chats, session, backend = {}, busy, 
           <div className="summary-pending" role="status"><span className="quiet-status"/>{preparationNote(session, backend, now)}</div>
         </aside>
       </div>
-      <AgentTransparency plan={session.agentPlan} run={session.lastRun} threadId={session.id}/>
+      <AgentTransparency plan={session.agentPlan} run={session.lastRun} threadId={session.id} documents={panelProps.documents} onOpenDocument={panelProps.onOpenDocument}/>
     </div>;
   }
   return <div className="themes-page">

@@ -1,6 +1,8 @@
 import React from 'react';
-import {ArrowLeft, ArrowUpRight, Folder, FolderOpen, MessageSquare, Search, X} from 'lucide-react';
+import {ArrowLeft, ArrowUpRight, Eye, EyeOff, Folder, FolderOpen, History, MessageSquare, Search, X} from 'lucide-react';
 import {companyLabel, documentParts, documentShortTitle, documentTitle, plural} from '../format.mjs';
+import {api} from '../api.mjs';
+import {readPreference} from '../preferences.mjs';
 
 const TYPE_LABELS = {'10-K': 'Rapports annuels', '10-Q': 'Rapports trimestriels', '8-K': 'Rapports courants'};
 const normalise = value => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -10,8 +12,18 @@ function searchText(doc) {
   return normalise([doc.name, documentTitle(doc), parts.kind, parts.period, parts.quarter && 'trimestre ' + parts.quarter].join(' '));
 }
 
+// Aperçu rapide : début du texte extrait, sans ouvrir le lecteur (balises Markdown et tableaux simplifiés).
+const previewText = content => content.replace(/<!--[^]*?-->/g, ' ').replace(/^\|.*\|$/gm, ' ').replace(/[#*_>`]/g, '').replace(/\n{3,}/g, '\n\n').trim().slice(0, 900);
 function DocumentRow({doc, inCompany, busy, sending, onOpenDocument, onNewChat}) {
   const parts = documentParts(doc);
+  const [preview, setPreview] = React.useState({open: false, text: '', loading: false, error: ''});
+  async function togglePreview() {
+    if (preview.open) return setPreview(previous => ({...previous, open: false}));
+    if (preview.text) return setPreview(previous => ({...previous, open: true}));
+    setPreview({open: true, text: '', loading: true, error: ''});
+    try { const data = await api('/api/documents/' + doc.id); setPreview({open: true, text: previewText(data.content || ''), loading: false, error: ''}); }
+    catch (error) { setPreview({open: true, text: '', loading: false, error: error.message}); }
+  }
   return <li className="library-document-row">
     <button className="library-document" onClick={() => onOpenDocument(doc.id)}>
       <span className={'document-glyph type-' + (parts.type || 'doc').toLowerCase()} aria-hidden="true">{parts.type || 'DOC'}</span>
@@ -22,6 +34,8 @@ function DocumentRow({doc, inCompany, busy, sending, onOpenDocument, onNewChat})
       <span className="open-document-label">Ouvrir</span><ArrowUpRight size={15}/>
     </button>
     <button className="document-chat-link" onClick={() => onNewChat([doc.id])} disabled={busy || sending} aria-label={'Préparer un chat avec ' + documentTitle(doc)}><MessageSquare size={15}/><span>Chat PDF</span></button>
+    {doc.hasText && <button type="button" className="document-chat-link" onClick={togglePreview} aria-expanded={preview.open} aria-label={(preview.open ? 'Masquer l’aperçu de ' : 'Aperçu rapide de ') + documentTitle(doc)}>{preview.open ? <EyeOff size={15}/> : <Eye size={15}/>}<span>Aperçu</span></button>}
+    {preview.open && <div className="document-preview" role="region" aria-label={'Aperçu de ' + documentTitle(doc)}>{preview.loading ? 'Lecture du début du rapport…' : preview.error || (preview.text ? preview.text + '…' : 'Texte extrait vide.')}</div>}
   </li>;
 }
 
@@ -31,7 +45,9 @@ export default function LibraryPage({workspace, view, onViewChange, busy, sendin
   const needle = normalise(query.trim());
   const types = [...new Set(documents.map(doc => doc.type).filter(Boolean))].sort();
   const years = [...new Set(documents.map(doc => doc.year).filter(Boolean))].sort().reverse();
-  const filtered = documents.filter(doc => (!company || doc.company === company) && (type === 'all' || doc.type === type) && (year === 'all' || doc.year === year) && (!needle || searchText(doc).includes(needle)));
+  // Recherche par mots : « Meta 2024 » trouve les rapports qui contiennent chacun des mots, dans n'importe quel ordre.
+  const words = needle.split(/\s+/).filter(Boolean);
+  const filtered = documents.filter(doc => (!company || doc.company === company) && (type === 'all' || doc.type === type) && (year === 'all' || doc.year === year) && (!words.length || words.every(word => searchText(doc).includes(word))));
   const filtering = Boolean(needle) || type !== 'all' || year !== 'all';
   const showList = Boolean(company) || filtering;
   const groups = [];
@@ -41,6 +57,8 @@ export default function LibraryPage({workspace, view, onViewChange, busy, sendin
     groups.at(-1).items.push(doc);
   }
   const reset = () => onViewChange({query: '', type: 'all', year: 'all'});
+  // Rapports consultés récemment sur cet appareil (identifiants seulement, si les préférences locales sont acceptées).
+  const recent = React.useMemo(() => { try { return JSON.parse(readPreference('folio-recent-documents') || '[]').map(id => documents.find(doc => doc.id === id)).filter(Boolean).slice(0, 5); } catch { return []; } }, [documents]);
   return <div className="library-page">
     <header className="simple-heading">
       <div>
@@ -49,6 +67,7 @@ export default function LibraryPage({workspace, view, onViewChange, busy, sendin
         <p>Ouvrez un dossier pour consulter les rapports qu’il contient, ou filtrez par type et par exercice. Les originaux ne sont jamais modifiés.</p>
       </div>
     </header>
+    {recent.length > 0 && <nav className="recent-documents" aria-label="Rapports consultés récemment"><span className="eyebrow"><History size={12}/> CONSULTÉS RÉCEMMENT</span>{recent.map(doc => <button key={doc.id} type="button" onClick={() => onOpenDocument(doc.id)}>{documentTitle(doc)}</button>)}</nav>}
     <div className="library-filter" role="search">
       <label><Search size={16}/><input type="search" aria-label="Rechercher dans les documents" placeholder="Rechercher : Meta 2024, trimestriel, T2…" value={query} onChange={event => onViewChange({query: event.target.value})}/>
         {query && <button type="button" className="filter-clear" onClick={() => onViewChange({query: ''})} aria-label="Effacer la recherche"><X size={14}/></button>}

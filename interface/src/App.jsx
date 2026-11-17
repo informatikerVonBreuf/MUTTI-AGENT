@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {Check, ChevronRight, FileText, Home, Library, LogOut, MessageSquare, Plus, RefreshCw, UserRound, X} from 'lucide-react';
+import {Check, ChevronRight, FileText, Gauge, Home, Library, LogOut, MessageSquare, Plus, RefreshCw, UserRound, X} from 'lucide-react';
 import {FolioMark} from './Identity.jsx';
 import {MotionControl, PageScenery} from './components/PageChrome.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
@@ -8,18 +8,21 @@ import LibraryPage from './pages/LibraryPage.jsx';
 import ChatPage from './pages/ChatPage.jsx';
 import ThemesPage from './pages/ThemesPage.jsx';
 import AccountPage from './pages/AccountPage.jsx';
+import MetricsPage from './pages/MetricsPage.jsx';
+import GuidedTour from './components/GuidedTour.jsx';
 import PrivacyPage, {PrivacyNotice} from './pages/PrivacyPage.jsx';
 import {readPreference, writePreference} from './preferences.mjs';
 import {DeleteModal, DocumentModal, MemoryModal, RenameModal, ScopeModal, ThemeModal} from './modals/Dialogs.jsx';
 import {api, json} from './api.mjs';
 import {backendSentence, backendShortLabels, backendState, pageLabels, plural} from './format.mjs';
 
-const PAGES = ['home', 'library', 'chat', 'themes', 'account', 'privacy'];
+const PAGES = ['home', 'library', 'chat', 'themes', 'metrics', 'account', 'privacy'];
 const NAVIGATION = [
   ['home', Home, 'Accueil', 'Accueil'],
   ['library', Library, 'Bibliothèque', 'Bibliothèque'],
-  ['chat', MessageSquare, 'Conversations', 'Conversations'],
+  ['chat', MessageSquare, 'Conversations', 'Chat'],
   ['themes', FileText, 'Résumés thématiques', 'Thèmes'],
+  ['metrics', Gauge, 'Mesures', 'Mesures'],
 ];
 const readPage = () => {
   if (typeof window === 'undefined') return 'home';
@@ -52,6 +55,7 @@ export default function App({onOpenLogin, onSignOut, accountLabel, accessMode = 
   const [toast, setToast] = useState('');
   const [modal, setModal] = useState(null);
   const [openedDocument, setOpenedDocument] = useState(null);
+  const [documentFocus, setDocumentFocus] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [renameTarget, setRenameTarget] = useState(null);
   const [memoryThread, setMemoryThread] = useState(null);
@@ -234,9 +238,11 @@ export default function App({onOpenLogin, onSignOut, accountLabel, accessMode = 
     finally { setBusy(false); }
   }
   const closeModal = useCallback(() => { readerRequest.current++; setModal(null); }, []);
-  async function openDocument(id) {
+  // Ouvre un rapport, éventuellement à la page et au passage cités ; mémorise les rapports récents (si accepté).
+  async function openDocument(id, focus = null) {
     const request = ++readerRequest.current;
-    setModal('document'); setOpenedDocument(null);
+    setModal('document'); setOpenedDocument(null); setDocumentFocus(focus && (focus.page || focus.quote) ? focus : null);
+    try { const recent = JSON.parse(readPreference('folio-recent-documents') || '[]').filter(item => item !== id); writePreference('folio-recent-documents', JSON.stringify([id, ...recent].slice(0, 6))); } catch {}
     try { const doc = await api('/api/documents/' + id); if (request === readerRequest.current) setOpenedDocument(doc); }
     catch (err) { if (request === readerRequest.current) { setModal(null); setError(err.message); } }
   }
@@ -301,19 +307,21 @@ export default function App({onOpenLogin, onSignOut, accountLabel, accessMode = 
             {page === 'home' && <HomePage workspace={workspace} backend={backend} busy={busy} onNavigate={navigate} onNewChat={() => newChat()} onNewTheme={newTheme} onOpenThread={openThread} onCheckBackend={checkBackend}/>}
             {page === 'library' && <LibraryPage workspace={workspace} view={libraryView} onViewChange={patch => setLibraryView(previous => ({...previous, ...patch}))} busy={busy} sending={sending} onOpenDocument={openDocument} onNewChat={newChat}/>}
             {page === 'chat' && <ChatPage threads={chats} thread={chat} busy={busy} sending={sending} panelProps={panelProps} onSelect={openThread} onCreate={() => newChat()} onDelete={askDelete} onClose={() => setChat(null)}/>}
+            {page === 'metrics' && (user?.role === 'member' ? <p className="simple-empty">Les mesures globales de l’atelier sont réservées à son propriétaire.</p> : <MetricsPage/>)}
             {page === 'account' && <AccountPage companies={companies} onPasswordChanged={onSessionRefresh}/>}
             {page === 'privacy' && <PrivacyPage onBack={() => navigate('home')}/>}
             {page === 'themes' && <ThemesPage themes={themes} chats={chats} session={themeSession} backend={backend} busy={busy} sending={sending} panelProps={panelProps} onOpenThread={openThread} onCloseSession={() => setThemeSession(null)} onNewTheme={newTheme} onDelete={askDelete}/>}
           </ErrorBoundary>
         </main>}
     </div>
-    {modal === 'document' && <DocumentModal document={openedDocument} busy={busy} sending={sending} onClose={closeModal} onNewChat={newChat}/>}
+    {modal === 'document' && <DocumentModal document={openedDocument} focus={documentFocus} busy={busy} sending={sending} onClose={closeModal} onNewChat={newChat}/>}
     {modal === 'scope' && <ScopeModal documents={documents} thread={scopeThread} busy={busy} onClose={closeModal} onApply={applyScope}/>}
     {modal === 'theme' && <ThemeModal chats={chats} busy={busy} onClose={closeModal} onCreate={createTheme}/>}
     {modal === 'delete' && deleteTarget && <DeleteModal target={deleteTarget} busy={busy} onClose={closeModal} onConfirm={deleteConversation}/>}
     {modal === 'rename' && renameTarget && <RenameModal target={renameTarget} onClose={closeModal} onSave={saveTitle}/>}
     {modal === 'memory' && memoryThread && <MemoryModal thread={memoryThread} busy={busy} onClose={closeModal} onAdd={addMemory} onEdit={editMemory} onForget={forget}/>}
     <PrivacyNotice/>
+    {workspace && <GuidedTour onNavigate={navigate}/>}
     {toast && <div className="app-toast" role="status"><Check size={16}/><span>{toast}</span><button aria-label="Fermer la notification" onClick={() => setToast('')}><X size={13}/></button></div>}
   </div>;
 }

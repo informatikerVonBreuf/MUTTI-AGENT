@@ -38,6 +38,14 @@ export default function HomePage({workspace, backend, onNavigate, onNewChat, onN
       </div>
       <div className="home-book"><BookSculpture/><span className="home-book-caption">OBJET 01 / CLIQUEZ POUR OUVRIR LE LIVRE</span></div>
     </section>
+    <section className="home-tenseconds" aria-labelledby="home-tenseconds-title">
+      <h2 id="home-tenseconds-title" className="eyebrow">FOLIO EN 10 SECONDES</h2>
+      <ol>
+        <li><button type="button" onClick={() => onNavigate('library')}><span className="sticker" aria-hidden="true">📚</span><strong>Lire</strong><span>{plural(documents.length, 'rapport officiel', 'rapports officiels')}{companies.length ? ` de ${listFormat(companies.map(companyLabel))}` : ''} : 10-K, 10-Q et 8-K, classés par entreprise et par année.</span></button></li>
+        <li><button type="button" onClick={onNewChat}><span className="sticker" aria-hidden="true">💬</span><strong>Questionner</strong><span>Une question en français : la réponse cite ses sources mot pour mot, page comprise, ou s’abstient faute de preuve.</span></button></li>
+        <li><button type="button" onClick={() => onNavigate('themes')}><span className="sticker" aria-hidden="true">🏗️</span><strong>Relier</strong><span>Quatre agents préparent un résumé thématique : vous suivez leur chantier, ce qu’ils consultent, le coût et l’empreinte.</span></button></li>
+      </ol>
+    </section>
     {recent.length > 0 && <section className="home-recent" aria-labelledby="home-recent-title">
       <div className="home-section-rule"><h2 id="home-recent-title">REPRENDRE OÙ VOUS EN ÉTIEZ</h2><FolioMark size={15}/></div>
       <ul className="home-recent-list">{recent.map(thread => <li key={thread.id}>
