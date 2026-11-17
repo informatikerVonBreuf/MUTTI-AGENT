@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "description": "Cas métier ancrés dans les rapports du corpus, et non dans la mémoire générale du modèle. Les chiffres attendus sont des repères de contrôle à relire dans les documents sources.",
+  "cases": [
+    {"id":"meta_revenue_2024","kind":"chat","question":"Quel est uniquement le chiffre d’affaires total annuel publié par Meta pour 2024, en millions de dollars américains ?","companies":["meta"],"year":"2024","type":"10-K","sourceNames":["meta 10-k 2024"],"expectedValues":["164,501"],"liveDefault":true},
+    {"id":"google_revenue_2024","kind":"chat","question":"Quel est le chiffre d’affaires total annuel publié par Google en 2024, en millions de dollars américains ?","companies":["google"],"year":"2024","type":"10-K","sourceNames":["google 10-k 2024"],"expectedValues":["350,018"]},
+    {"id":"apple_sales_2024","kind":"chat","question":"Quel est le chiffre d’affaires total annuel publié par Apple pour l’exercice 2024, en millions de dollars américains ?","companies":["apple"],"year":"2024","type":"10-K","sourceNames":["apple 10-k 2024"],"expectedValues":["391,035"]},
+    {"id":"amazon_sales_2024","kind":"chat","question":"Quel est le chiffre d’affaires total annuel publié par Amazon pour 2024, en millions de dollars américains ?","companies":["amazon"],"year":"2024","type":"10-K","sourceNames":["amazon 10-k 2024"],"expectedValues":["637,959"]},
+    {"id":"compare_meta_google_2024","kind":"thematic","theme":"Comparaison des revenus annuels 2024","question":"Comparer le chiffre d’affaires total annuel publié de Meta et de Google pour 2024, en millions de dollars américains. Distinguer chaque entreprise et rester sur les valeurs publiées.","companies":["meta","google"],"year":"2024","type":"10-K","sourceNames":["meta 10-k 2024","google 10-k 2024"],"expectedValues":["164,501","350,018"],"liveDefault":true},
+    {"id":"meta_future_abstention","kind":"chat","question":"Quel est le chiffre d’affaires total annuel publié par Meta en 2032 ?","companies":["meta"],"year":"2032","type":"10-K","sourceNames":[],"expectedValues":[],"mustAbstain":true,"liveDefault":true}
+  ]
+}
