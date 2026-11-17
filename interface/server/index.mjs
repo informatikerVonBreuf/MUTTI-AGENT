@@ -3,7 +3,8 @@ import {promises as fs} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createAppStore} from './app-store.mjs';
-import {authStatus,unavailableAuthResponse} from './auth-contract.mjs';
+import {createAuthService} from './auth-service.mjs';
+import {parseEnv} from 'node:util';
 import {loadBackendConfig} from './backend-config.mjs';
 import {createAIConnector} from './ai-connector.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -12,6 +13,8 @@ const projectRoot=path.resolve(root,'..'),storageDirectory=process.env.FOLIO_DAT
 let connector;
 const store=await createAppStore({projectRoot,storageDirectory,backendState:()=>connector?.status()||{connected:false,citationsEnabled:false}});
 const config=await loadBackendConfig({projectRoot,storageDirectory});
+let environmentValues={};try{environmentValues=parseEnv(await fs.readFile(config.environmentFile,'utf8'));}catch(error){if(error.code!=='ENOENT')throw new Error('Configuration de connexion illisible.');}
+const auth=await createAuthService({storageDirectory,values:{...environmentValues,...process.env}});
 connector=await createAIConnector({store,config});
 void connector.probe();
 const json=(response,status,data)=>{response.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});response.end(JSON.stringify(data));};
@@ -23,11 +26,19 @@ const server=createServer(async(request,response)=>{
     const url=new URL(request.url,`http://${request.headers.host}`);
     if(!['127.0.0.1','localhost','[::1]'].includes(url.hostname))return json(response,403,{error:'Hôte non autorisé.'});
     if(url.pathname.startsWith('/api/')){
-      if(request.headers.origin&&request.headers.origin!==url.origin)return json(response,403,{error:'Origine non autorisée.'});
-      if(request.method==='GET'&&url.pathname==='/api/health')return json(response,200,{status:'ok',version:'sessions-v4',backendConnected:connector.status().connected});
-      if(request.method==='GET'&&url.pathname==='/api/auth/status')return json(response,200,authStatus());
-      if(request.method==='GET'&&url.pathname==='/api/auth/session')return json(response,200,{authenticated:false,user:null});
-      if(request.method==='POST'&&['/api/auth/login','/api/auth/recovery'].includes(url.pathname)){request.resume();return json(response,503,unavailableAuthResponse());}
+      const oauthCallback=request.method==='GET'&&url.pathname==='/api/auth/callback';
+      if(!oauthCallback&&(request.headers.origin&&request.headers.origin!==url.origin||request.headers['sec-fetch-site']==='cross-site'))return json(response,403,{error:'Origine non autorisée.'});
+      if(request.method==='GET'&&url.pathname==='/api/health')return json(response,200,{status:'ok',version:'sessions-v5',backendConnected:connector.status().connected});
+      if(request.method==='GET'&&url.pathname==='/api/auth/status')return json(response,200,auth.status());
+      if(request.method==='GET'&&url.pathname==='/api/auth/session')return json(response,200,auth.session(request));
+      if(request.method==='POST'&&url.pathname==='/api/auth/setup'){const result=await auth.setup(await body(request),request);response.setHeader('Set-Cookie',result.cookie);return json(response,201,{accepted:true,recoveryCode:result.recoveryCode});}
+      if(request.method==='POST'&&url.pathname==='/api/auth/login'){const result=await auth.login(await body(request),request);response.setHeader('Set-Cookie',result.cookie);return json(response,200,{accepted:true});}
+      if(request.method==='POST'&&url.pathname==='/api/auth/reset'){const result=await auth.reset(await body(request),request);response.setHeader('Set-Cookie',result.cookie);return json(response,200,{accepted:true,recoveryCode:result.recoveryCode});}
+      if(request.method==='POST'&&url.pathname==='/api/auth/logout'){request.resume();const result=await auth.logout(request);response.setHeader('Set-Cookie',result.cookie);return json(response,200,{accepted:true,logoutUrl:result.logoutUrl});}
+      if(request.method==='POST'&&url.pathname==='/api/auth/recovery'){request.resume();return json(response,409,{code:'RECOVERY_METHOD_REQUIRED',error:'Utilisez le code de récupération local ou le parcours AWS indiqué sur la page.'});}
+      if(request.method==='GET'&&url.pathname==='/api/auth/redirect'){const result=await auth.oauthStart(request);if(result.cookie)response.setHeader('Set-Cookie',result.cookie);response.writeHead(303,{Location:result.location,'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});return response.end();}
+      if(oauthCallback){try{const result=await auth.oauthCallback(request,url);response.setHeader('Set-Cookie',[result.cookie,result.stateCookie]);response.writeHead(303,{Location:result.location,'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});}catch{response.writeHead(303,{Location:'/?auth=failed#login','Cache-Control':'no-store','Referrer-Policy':'no-referrer'});}return response.end();}
+      if(!auth.session(request).authenticated)return json(response,401,{code:'SESSION_EXPIRED',error:'Connectez-vous pour accéder à votre atelier.'});
       if(request.method==='GET'&&url.pathname==='/api/backend/status')return json(response,200,connector.status());
       if(request.method==='POST'&&url.pathname==='/api/backend/probe')return json(response,200,await connector.probe());
       if(request.method==='GET'&&url.pathname==='/api/workspace')return json(response,200,store.overview());
@@ -73,12 +84,12 @@ const server=createServer(async(request,response)=>{
     try{if(!(await fs.stat(target)).isFile())target=path.join(dist,'index.html');}catch{if(path.extname(relative)&&path.extname(relative)!=='.html'){response.writeHead(404);return response.end('Introuvable');}target=path.join(dist,'index.html');}
     const content=await fs.readFile(target);
     response.writeHead(200,{'Content-Type':mime[path.extname(target)]||'application/octet-stream','Cache-Control':path.extname(target)==='.html'?'no-cache':'public, max-age=3600','X-Content-Type-Options':'nosniff'});return response.end(request.method==='HEAD'?undefined:content);
-  }catch(error){if(!response.headersSent)json(response,error.status||500,{error:error.status?error.message:'Une erreur est survenue côté serveur.'});else response.end();console.error(error.message);}
+  }catch(error){if(!response.headersSent)json(response,error.status||500,{...(error.status&&error.code?{code:error.code}:{}),error:error.status?error.message:'Une erreur est survenue côté serveur.'});else response.end();if(!error.status)console.error('Une opération du serveur a échoué.');}
 });
 if(development){const {createServer:createViteServer}=await import('vite');vite=await createViteServer({root,configFile:path.join(root,'vite.config.js'),server:{middlewareMode:true,hmr:{server}},appType:'spa'});}
 const port=Number(process.env.PORT||5173);
 server.on('error',error=>{console.error(error.code==='EADDRINUSE'?`Le port ${port} est déjà utilisé. Ouvrez http://127.0.0.1:${port} ou choisissez PORT.`:error.message);process.exitCode=1;});
 server.listen(port,'127.0.0.1',()=>console.log(`\n  Folio — http://127.0.0.1:${server.address().port}\n  Bibliothèque · Conversations · Résumés thématiques\n`));
 let closing=false;
-async function close(){if(closing)return;closing=true;await connector.close();await store.close();await vite?.close();server.close(()=>process.exit(0));server.closeIdleConnections();}
+async function close(){if(closing)return;closing=true;await connector.close();await store.close();await auth.close();await vite?.close();server.close(()=>process.exit(0));server.closeIdleConnections();}
 process.on('SIGINT',close);process.on('SIGTERM',close);

@@ -1,55 +1,71 @@
-# Connexion — interface et prochain raccordement
+# Connexion de Folio
 
-État du 13 novembre 2026. Cette livraison construit l’écran et son contrat ; elle ne met pas en place un fournisseur d’identité.
+État du **15 novembre 2026**. Le choix actuel est une connexion locale provisoire, avec un raccordement Cognito préparé pour la suite AWS.
 
-## Écran disponible
+## Utiliser le compte local
 
-- Page initiale ou `#login` : e-mail, mot de passe, affichage/masquage, erreurs de saisie, indication Verr. Maj et chargement.
-- `#recovery` : parcours de récupération et retour vers la connexion.
-- Accès sur invitation ; aucune inscription publique ni identité de démonstration inventée.
-- Composition papier/vert profond, humain d’apparence photographique devant un livre et feuillet décoratif animé, adaptation mobile, clavier et mouvement réduit. L’image est générée et servie localement ; il ne s’agit pas d’une vidéo. Le mouvement réduit conserve une image fixe.
-- L’aperçu local reste disponible sans compte sur localhost. Le bouton « Connexion » permet de revenir au formulaire.
+Ouvrir `http://127.0.0.1:5173/#login`. Au premier démarrage, créer le compte propriétaire : adresse e-mail, mot de passe d’au moins 12 caractères et confirmation. Aucun compte ni mot de passe par défaut n’est fourni.
 
-Les identifiants restent uniquement dans l’état temporaire du formulaire. Le client ne les envoie pas lorsque le service est déclaré non configuré. Le mot de passe est effacé après une tentative. Aucun jeton ni mot de passe n’est conservé dans localStorage ou sessionStorage ; seule la préférence d’animation y est enregistrée.
+Après création, conserver le **code de récupération affiché une seule fois** dans son gestionnaire de mots de passe, puis ouvrir l’atelier. Les connexions suivantes utilisent l’adresse et le mot de passe. Le bouton Déconnexion ferme réellement la session côté serveur.
 
-## Contrat côté serveur
+Depuis `#recovery`, saisir l’adresse, le code conservé et un nouveau mot de passe. Le code est remplacé après usage et toutes les anciennes sessions sont révoquées. Le nouveau code doit être conservé à son tour. Aucun faux e-mail de récupération n’est annoncé dans ce mode.
 
-| Route | État actuel |
+Le raccourci d’aperçu sans compte est retiré du serveur actif. Ouvrir directement `#chat` ne donne pas accès aux données : l’interface demande une connexion et les routes métier refusent les requêtes sans session.
+
+## Stockage et protection
+
+- Un seul propriétaire peut être créé ; l’initialisation est fermée ensuite, y compris en cas de requêtes simultanées.
+- Les mots de passe utilisent scrypt avec sel aléatoire (`N=131072`, `r=8`, `p=1`) ; le mot de passe et le code de récupération ne sont pas conservés en clair.
+- Le cookie de session est opaque, `HttpOnly`, `SameSite=Strict`, limité à huit heures. Seule son empreinte SHA-256 est conservée côté serveur. La déconnexion retire cette empreinte ; l’expiration est également contrôlée côté serveur.
+- Le navigateur ne conserve aucun mot de passe ni jeton dans localStorage ou sessionStorage. Le code de récupération reste en mémoire le temps de son affichage.
+- Six échecs de connexion entraînent une limitation de quinze minutes pour l’adresse réseau locale.
+- Le serveur vérifie l’origine et refuse les appels intersites. Il écoute sur la boucle locale. Les échanges publics nécessiteront un hébergement HTTPS et la configuration adaptée.
+
+Les fichiers sont dans `.runtime/auth/owner.json` et `.runtime/auth/sessions.json`, ignorés par Git. Les conversations existantes restent à leur emplacement et ne sont ni déplacées ni supprimées. Le coffre AWS reste à raccorder ; les secrets techniques sont actuellement lus dans le fichier privé configuré.
+
+Ce parcours protège un **atelier à propriétaire unique**. Il ne constitue pas un service multi-utilisateur avec espaces et droits distincts. Cette isolation devra être ajoutée avant d’inviter plusieurs propriétaires indépendants.
+
+## API
+
+| Route | Comportement |
 | --- | --- |
-| `GET /api/auth/status` | `configured: false`, `apiProtected: false`, `authenticated: false`, mode `local_preview` |
-| `GET /api/auth/session` | `authenticated: false`, `user: null` |
-| `POST /api/auth/login` | HTTP 503, `AUTH_NOT_CONNECTED` ; aucune session ni cookie créés |
-| `POST /api/auth/recovery` | HTTP 503, `AUTH_NOT_CONNECTED` ; aucun e-mail envoyé |
+| `GET /api/auth/status` | Fournisseur, initialisation nécessaire et méthode de récupération, sans secret |
+| `GET /api/auth/session` | Session confirmée ou utilisateur nul |
+| `POST /api/auth/setup` | Création du premier propriétaire, code affiché une fois et cookie |
+| `POST /api/auth/login` | Vérification du mot de passe et rotation de session |
+| `POST /api/auth/reset` | Récupération par code, remplacement du mot de passe et révocation des sessions |
+| `POST /api/auth/logout` | Révocation de la session et suppression du cookie |
+| `GET /api/auth/redirect` | Début du parcours Cognito si configuré |
+| `GET /api/auth/callback` | Retour Cognito, validation puis création de la session locale |
 
-Ces routes ne renvoient pas les identifiants reçus et n’enregistrent pas leur contenu. Le navigateur refuse d’ouvrir le raccourci d’aperçu sur un nom d’hôte public. **Ce contrôle d’interface n’est pas une autorisation serveur.** Les routes documentaires et de conversation restent celles d’un espace personnel local, accessible sur la boucle locale. Elles doivent recevoir authentification et isolation avant tout hébergement partagé.
+Catalogue, textes, PDF, conversations, mémoire, état IA et lancement des agents exigent une session et renvoient HTTP 401 sans elle. `health`, les métadonnées publiques de connexion et ses parcours restent accessibles pour permettre de se connecter.
 
-Ajouter des variables d’environnement ne suffit pas à activer la connexion : l’adaptateur du fournisseur et l’autorisation des API ne sont pas encore implémentés. `configured` ne devra devenir vrai qu’après ce raccordement. Le client préparé attendra une session confirmée par le serveur après la connexion ; il ne fait pas confiance à un simple message de succès du formulaire.
+## Préparer Cognito sans changer les écrans métier
 
-## Prérequis pour raccorder le backend
+L’adaptateur est présent mais **aucun pool AWS n’a été créé ni utilisé pour une connexion réelle**. Les tests Cognito emploient des réponses simulées et des clés RSA de test. Quand le compte AWS et le pool seront disponibles, renseigner ces valeurs localement ou dans le gestionnaire de secrets retenu :
 
-La préférence confirmée du propriétaire est de rester sur AWS. Le fournisseur envisagé est Amazon Cognito User Pools. L’écran reste indépendant de ce choix et aucun appel à Cognito n’est encore effectué.
+```dotenv
+FOLIO_AUTH_MODE=cognito
+FOLIO_COGNITO_REGION=eu-west-3
+FOLIO_COGNITO_USER_POOL_ID=eu-west-3_EXEMPLE
+FOLIO_COGNITO_CLIENT_ID=identifiantDuClient
+FOLIO_COGNITO_DOMAIN=https://votre-domaine.auth.eu-west-3.amazoncognito.com
+FOLIO_COGNITO_REDIRECT_URI=http://localhost:5173/api/auth/callback
+FOLIO_COGNITO_OWNER_EMAIL=proprietaire@exemple.fr
+# Seulement si le client Cognito possède un secret, à garder côté serveur :
+# FOLIO_COGNITO_CLIENT_SECRET=...
+```
 
-1. Retrouver le compte AWS et vérifier région, droits, crédits et budget avant toute création. Relever l’identifiant du user pool et du client applicatif si un pool existe déjà. Ces identifiants de configuration ne remplacent pas une identité IAM autorisée pour les opérations d’administration.
-2. Définir le flux supporté par le formulaire personnalisé et l’adaptateur Node. Prévoir les états Cognito utiles : invitation avec changement de mot de passe initial, récupération avec code et MFA si activé. Le formulaire actuel prépare la saisie et la demande de récupération ; il ne gère pas encore ces défis du fournisseur. Les écrans de confirmation seront ajoutés avec le contrat réel du pool.
-3. Garder la création de comptes sous contrôle de l’administrateur et configurer les URL autorisées ainsi que l’envoi des messages. Aucun appel de récupération ni invitation n’est effectué dans cette livraison.
-4. Ajouter les sessions côté serveur, la protection des API, l’expiration, le rafraîchissement, la déconnexion et la révocation. Vérifier les jetons Cognito auprès du bon émetteur/client et tester les limites réelles d’invalidation.
-5. Associer chaque historique, mémoire et session thématique à son propriétaire. Définir les droits sur les PDF et le périmètre de recherche Qdrant avant tout partage. Le choix de la base durable AWS reste ouvert ; une clé utilisateur ne doit jamais provenir librement du corps d’une requête.
-6. Utiliser le gestionnaire AWS retenu pour les clés techniques, avec identités IAM limitées et rôles d’exécution lorsque disponibles. Secrets Manager et Parameter Store seront comparés selon fonctions et coût. Aucun mot de passe utilisateur récupérable n’est stocké dans ce vault ; aucune clé AWS privilégiée ne va dans React.
-7. Tester deux comptes distincts, les accès directs aux API, les invitations, l’expiration et les échecs du fournisseur avant de publier la démonstration.
+Configurer côté Cognito le flux **authorization code**, les scopes `openid email`, l’URL de retour exacte ci-dessus et l’URL de déconnexion `http://localhost:5173/`. AWS accepte HTTP pour `localhost` à des fins de test ; utiliser HTTPS pour un déploiement. Le serveur actuel reste limité aux hôtes locaux et aux domaines Cognito gérés des régions commerciales.
 
-Le RAG et les agents disposent désormais d’un raccordement local distinct de l’authentification : question directe, recherche automatique et suivi des étapes. Voir [BACKEND.md](BACKEND.md). Ce branchement n’active ni Cognito, ni isolation entre comptes, ni coffre AWS.
+Le formulaire affiche alors « Continuer avec AWS ». Mot de passe, MFA et récupération sont gérés sur la page Cognito. Le serveur échange le code avec PKCE S256, vérifie `state` et `nonce`, puis contrôle signature RS256, clés du pool, émetteur, audience, usage ID, dates et e-mail vérifié. Seule l’adresse propriétaire explicitement configurée est admise. Les clés publiques sont rechargées en cas de rotation. Les jetons AWS ne vont pas dans le stockage du navigateur et le refresh token n’est pas conservé.
 
-Le projet inspecté ne contient pas de configuration Cognito exploitable ; le propriétaire vérifie actuellement ses options AWS. Ne pas fournir de secret dans une conversation : les valeurs seront configurées localement ou dans le gestionnaire choisi. La création d’un projet cloud et son éventuelle facturation restent des étapes séparées.
+La session de l’application expire au plus tard avec l’ID token, avec un plafond de huit heures. Une révocation distante Cognito n’est pas interrogée à chaque requête ; la déconnexion locale est immédiate. Une configuration Cognito incomplète garde les API fermées et n’active pas de repli anonyme. `FOLIO_AUTH_MODE=local` conserve le parcours provisoire.
 
-Références : [Cognito User Pools](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools.html), [flux d’authentification](https://docs.aws.amazon.com/cognito/latest/developerguide/authentication.html), [Secrets Manager](https://docs.aws.amazon.com/secretsmanager/latest/userguide/intro.html).
+Références : [autorisation et callbacks](https://docs.aws.amazon.com/cognito/latest/developerguide/authorization-endpoint.html), [échange du code](https://docs.aws.amazon.com/cognito/latest/developerguide/token-endpoint.html), [vérification des jetons et rotation des clés](https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-tokens-verifying-a-jwt.html).
 
-## Vérifications
+## Vérifier
 
-- Tests unitaires du contrat, des champs et du client : aucun envoi sans service connecté ; aucune session sur la seule foi d’une réponse de connexion ; erreurs fournisseur expurgées ; récupération confirmée avant affichage d’un succès.
-- Rendu React statique : présence des champs, masquage initial du mot de passe, parcours de récupération, invitation, aperçu et états indisponibles.
-- Contrôle HTTP isolé : état non connecté, refus de connexion et récupération, absence de cookie et de mot de passe reflété, catalogue et préparation RAG toujours utilisables.
-- Compilation Vite.
+`npm.cmd test`, `npm.cmd run test:ui`, `npm.cmd run build` et `node scripts/check-rag-api.mjs` depuis `interface`. Les comptes des tests sont créés dans des répertoires temporaires isolés. Le contrôle HTTP teste initialisation, connexion, déconnexion, récupération, refus sans session et refus des origines externes. Le rendu React statique vérifie les parcours local et AWS ; il ne remplace pas un test navigateur.
 
-Le rendu statique et les requêtes HTTP ne remplacent pas un E2E dans un navigateur. Une vérification visuelle et des interactions sur téléphone réel restera à effectuer lorsqu’un navigateur de test sera disponible.
-
-Aucun commit, push, déploiement public ou création de compte n’est effectué par ces scripts.
+Le [notebook de validation métier](<../13 Validation RAG sur les documents metiers.ipynb>) appelle directement les mêmes services RAG dans un stockage temporaire. Il ne contourne pas l’authentification des API HTTP.

@@ -44,3 +44,19 @@ test('Recovery requires a confirmed request before the UI can announce acceptanc
 test('Malformed authentication status cannot authorize preview',async()=>{
   const client=createAuthClient(async()=>reply({configured:false}));await assert.rejects(client.status(),error=>error.code==='INVALID_RESPONSE');
 });
+test('La création locale vérifie la session et ne transmet que les champs attendus',async()=>{
+  const calls=[],code='a'.repeat(43),client=createAuthClient(async(url,options)=>{calls.push({url,options});return reply(url.endsWith('/session')?{authenticated:true,user:{id:'owner'}}:{accepted:true,recoveryCode:code});});
+  const result=await client.setup({email:' owner@example.test ',password:'Fixture passphrase of sufficient length',role:'admin'}, {...connected,setupRequired:true});
+  assert.equal(result.session.user.id,'owner');assert.equal(result.recoveryCode,code);assert.deepEqual(JSON.parse(calls[0].options.body),{email:'owner@example.test',password:'Fixture passphrase of sufficient length'});
+});
+test('Récupération locale : pas de faux e-mail et uniquement le code, adresse et nouveau mot de passe',async()=>{
+  const calls=[],client=createAuthClient(async(url,options)=>{calls.push({url,options});return reply({accepted:true,recoveryCode:'b'.repeat(43)});});
+  await client.resetLocal({email:'owner@example.test',recoveryCode:'fixture-code',newPassword:'A long new fixture passphrase',admin:true},connected);
+  assert.equal(calls[0].url,'/api/auth/reset');assert.deepEqual(Object.keys(JSON.parse(calls[0].options.body)).sort(),['email','newPassword','recoveryCode']);
+});
+test('Une déconnexion non confirmée ou une redirection non AWS est refusée',async()=>{
+  for(const data of [{accepted:false},{accepted:true,logoutUrl:'javascript:alert(1)'},{accepted:true,logoutUrl:'https://attacker.test/logout'}])await assert.rejects(createAuthClient(async()=>reply(data)).logout(),error=>error.code==='INVALID_RESPONSE');
+});
+test('Le client ne transmet pas de mot de passe depuis le formulaire vers le mode Cognito',async()=>{
+  let calls=0;const client=createAuthClient(async()=>{calls++;throw new Error('No credential transmission expected');});await assert.rejects(client.signIn({email:'owner@example.test',password:'fixture'},{...connected,provider:'cognito'}),error=>error.code==='AUTH_REDIRECT_REQUIRED');assert.equal(calls,0);
+});
