@@ -1,6 +1,6 @@
 # Backend local — RAG et résumés
 
-État du 13 novembre 2026. Node expose les API, conserve les historiques et contrôle la recherche. Python exécute les traitements ; Gemini produit les affirmations structurées. Aucun service AWS n’est créé.
+État du 17 novembre 2026. Node expose les API, conserve les historiques et contrôle la recherche. Python exécute les traitements ; Gemini produit les affirmations structurées. Aucun service AWS n’est créé.
 
 ## Parcours raccordés
 
@@ -12,7 +12,15 @@ Le journal expose les étapes et leur état, jamais le raisonnement privé. Une 
 
 ## Recherche et références
 
-Les textes Markdown déjà extraits sont indexés localement avec BM25. Entreprise, année et type de rapport servent de filtres. Les comparaisons nommant plusieurs entreprises réservent un passage à chacune lorsqu’il en existe. Aucun choix de PDF n’est nécessaire. « Chat PDF » depuis la bibliothèque restreint volontairement la recherche au rapport ouvert ; « Utiliser tout le corpus » retire cette restriction.
+Les textes Markdown déjà extraits sont indexés localement avec BM25. Entreprise, année et type de rapport servent de filtres. Les comparaisons nommant plusieurs entreprises réservent un passage à chacune lorsqu’il en existe. Aucun choix de PDF n’est nécessaire.
+
+Les rapports sont en anglais : un petit vocabulaire traduit les termes des questions en français (« chiffre d’affaires », « ventes nettes », « publicitaire », « résultat opérationnel » ou « d’exploitation », etc.). Une relance qui ne nomme pas à la fois une entreprise et une année (« et sur la même période ? », « et pour Apple ? ») reçoit ce qui lui manque, pour la recherche comme pour le vérificateur :
+- l’entreprise et l’année manquantes viennent, chacune, de la question précédente la plus récente qui les nomme ;
+- les tickers (AWS, AMZN, AAPL, GOOG) comptent comme des noms d’entreprise ;
+- le sujet vient de la fin des deux dernières questions, d’où sont retirées l’entreprise et l’année remplacées ;
+- une question précédente qui contient une consigne suspecte ne prête que ses noms d’entreprise et ses années.
+
+La requête enrichie reste sous la borne de 4 000 caractères du serveur ; « ce que les agents ont consulté » l’affiche. « Chat PDF » depuis la bibliothèque restreint volontairement la recherche au rapport ouvert ; « Utiliser tout le corpus » retire cette restriction.
 
 **Qdrant n’est pas utilisé.** Le statut distingue sa joignabilité de son utilisation (`vector.used: false`). L’ancien serveur local n’était pas joignable lors du diagnostic. Les anciennes ressources Qdrant Cloud/AWS restent à retrouver.
 

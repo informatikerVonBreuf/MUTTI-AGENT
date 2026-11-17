@@ -73,6 +73,8 @@ Depuis la racine : `C:/Python314/python.exe -m unittest scripts.test_folio_worke
 
 La sécurité agent-à-agent (politiques imposées par le serveur, transferts signés, journal d’audit chaîné, middleware LangChain, filtre d’injections à deux niveaux, CSRF, limitation de débit, isolation préparée) et les résultats de la suite d’attaques sont décrits dans [SECURITE-RAG-AGENTS-2026.md](SECURITE-RAG-AGENTS-2026.md).
 
+Le dernier rapport de validation de bout en bout est [VALIDATION-2026-11.md](VALIDATION-2026-11.md). La vidéo de démonstration (8 min, six chapitres, tournée sur l’application réelle avec Gemini) est décrite dans [demo/SCRIPT-VIDEO.md](demo/SCRIPT-VIDEO.md), avec les scripts qui la régénèrent ; le fichier `demo/folio-demo.mp4` n’est pas versionné.
+
 Ces contrôles déterministes n’appellent pas de fournisseur payant. Le pont lance réellement Python/LangGraph avec un modèle simulé. Le rendu React statique et les requêtes HTTP ne remplacent pas un E2E navigateur ni un test utilisateur. Voir aussi [la note de sécurité](SECURITE-RAG-AGENTS-2026.md).
 
 ## Notebook de validation métier

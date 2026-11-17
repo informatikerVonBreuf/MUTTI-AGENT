@@ -123,3 +123,13 @@ Dernière mesure sur la pile Docker complète, avec vérification anti-robot (r�
 Deux analyses enchaînées sans pause n’ont pas le temps de bénéficier du worker de réserve ; elles paient alors l’import de Python, de quelques secondes à 20 s sur une machine saturée.
 
 Les réponses obtenues (164 501 M$ et 93 736 M$) sont citées et contrôlées. Les deux durées incluent la construction de l’index à froid, corrigée ensuite par le préchauffage. Pour le second run, LangSmith a reçu l’arbre complet : racine, chercheur, recherche, deux appels modèle avec leurs tokens et leur coût, vérificateur. Les entrées et sorties étaient vides. Deux mesures ponctuelles ne constituent pas un benchmark.
+
+**Tournage de la vidéo de démonstration, Gemini 3.8 Flash, index préchauffé :**
+
+| Analyse | Durée | Appels | Tokens entrée / sortie | Coût | Empreinte estimée |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Chiffre d’affaires total d’Amazon 2024 (chat) | 11,4 s | 2 | 6 419 / 159 | 0,0054 $ | 0,48 Wh · 0,06 g CO₂e · 0,52 mL |
+| Revenus publicitaires Meta et Google 2024 (résumé, quatre rôles) | 15,4 s | 4 | 12 763 / 307 | 0,0107 $ | 0,96 Wh · 0,12 g CO₂e · 1,04 mL |
+| Résultat d’exploitation d’Amazon 2024 (chat) | 10,9 s | 2 | 3 452 / 161 | 0,0032 $ | 0,48 Wh · 0,06 g CO₂e · 0,52 mL |
+
+Deux abstentions de la première prise ont coûté 0,0074 $ pour 3 appels. Elles venaient de deux défauts de recherche, corrigés depuis : un vocabulaire français incomplet et des relances cherchées sans leur contexte. Au total, la vidéo représente 11 appels, 0,027 $ et 2,64 Wh estimés.
