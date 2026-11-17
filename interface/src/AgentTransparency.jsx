@@ -15,7 +15,7 @@ function StateIcon({status}) {
   return <Circle size={12}/>;
 }
 
-export default function AgentTransparency({plan, run}) {
+export default function AgentTransparency({plan, run, threadId}) {
   if (!plan) return null;
   const executed = plan.status !== 'prepared_not_executed';
   const totalMs = run?.startedAt && run?.finishedAt ? Date.parse(run.finishedAt) - Date.parse(run.startedAt) : NaN;
@@ -49,6 +49,73 @@ export default function AgentTransparency({plan, run}) {
       <time dateTime={event.at}>{new Date(event.at).toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit', second: '2-digit'})}</time>
       <strong>{event.label}</strong>
       <span>{eventStates[event.status] || states[event.status] || event.status}{event.tool ? ` · ${tools[event.tool] || event.tool}` : ''}</span>
+    </li>)}</ol>}
+    {executed && run && <AuditTrail threadId={threadId} run={run}/>}
+  </section>;
+}
+
+const auditActions = {auth: 'Connexion', run_start: 'Début d’analyse', run_end: 'Fin d’analyse', tool_call: 'Appel d’outil', model_call: 'Appel au modèle', handoff: 'Transfert signé', security: 'Décision de sécurité', policy: 'Politique'};
+const roleNames = {server: 'Serveur', planner: 'Planificateur', researcher: 'Chercheur', verifier: 'Vérificateur', writer: 'Rédacteur'};
+const trustNames = {trusted_instruction: 'consigne du serveur', model_plan: 'plan du modèle', untrusted_evidence: 'preuves non vérifiées', verified_evidence: 'preuves vérifiées', verified_summary: 'synthèse vérifiée'};
+export const securityReasons = {
+  passage_quarantine: 'Passage écarté : instruction détectée dans un document',
+  memory_quarantine: 'Note de mémoire écartée : instruction détectée',
+  tool_output_quarantine: 'Sortie d’outil écartée par le second rempart',
+  handoff_rejected: 'Transfert entre agents refusé (intégrité)',
+  tool_call: 'Appel d’outil refusé',
+  model_call: 'Appel au modèle refusé',
+  budget: 'Budget de l’analyse dépassé',
+  citation_check: 'Affirmations sans preuve exacte rejetées',
+  policy: 'Politique de sécurité appliquée',
+  csrf_invalid: 'Requête sans jeton CSRF refusée',
+  rate_limited: 'Trop de demandes rapprochées',
+};
+export const reasonLabel = value => securityReasons[String(value || '').split(':')[0]] || String(value || '');
+
+// Vue « Audit » : journal chaîné du serveur pour la dernière exécution, et intégrité de la chaîne.
+export function AuditTrail({threadId, run}) {
+  const [state, setState] = React.useState({loading: false, data: null, error: ''});
+  const runKey = run?.id + ':' + run?.status;
+  React.useEffect(() => {
+    if (!threadId || !run?.id || run.status === 'running') return undefined;
+    let cancelled = false;
+    setState(current => ({...current, loading: true, error: ''}));
+    fetch(`/api/threads/${threadId}/audit`, {credentials: 'same-origin'}).then(response => response.ok ? response.json() : Promise.reject(new Error()))
+      .then(data => { if (!cancelled) setState({loading: false, data, error: ''}); })
+      .catch(() => { if (!cancelled) setState({loading: false, data: null, error: 'Journal d’audit indisponible pour le moment.'}); });
+    return () => { cancelled = true; };
+  }, [threadId, runKey]);
+  if (!run?.id) return null;
+  const {data, loading, error} = state;
+  return <section className="agent-audit" aria-labelledby="agent-audit-title">
+    <header>
+      <span className="eyebrow">AUDIT / JOURNAL CHAÎNÉ</span>
+      <h3 id="agent-audit-title">Qui a fait quoi, avec quels documents.</h3>
+      {data?.chain && <span className={'audit-chain ' + (data.chain.valid ? 'is-valid' : 'is-broken')} role="status">
+        {data.chain.valid ? <ShieldCheck size={13}/> : <XCircle size={13}/>}
+        {data.chain.valid ? `Chaîne intacte · ${plural(data.chain.entries, 'entrée', 'entrées')} · empreinte ${String(data.chain.lastHash || '').slice(0, 10)}…` : `Chaîne rompue à la ligne ${data.chain.brokenAt}`}
+      </span>}
+    </header>
+    <p className="transparency-description">Chaque ligne contient l’empreinte de la précédente : une modification ou une suppression devient détectable. Aucune question, aucun passage, aucun secret n’y figure.</p>
+    {run.handoffs?.length > 0 && <ol className="audit-handoffs" aria-label="Transferts signés entre agents">{run.handoffs.map(handoff => <li key={handoff.seq}>
+      <span className="handoff-seq">#{handoff.seq}</span>
+      <strong>{roleNames[handoff.from] || handoff.from} → {roleNames[handoff.to] || handoff.to}</strong>
+      <span>{trustNames[handoff.trust] || handoff.trust}</span>
+      <span className="handoff-verified"><LockKeyhole size={11}/>signature vérifiée · {handoff.payloadHash}</span>
+    </li>)}</ol>}
+    {run.security?.length > 0 && <ul className="audit-security" aria-label="Décisions de sécurité">{run.security.map((item, index) => <li key={index} className={'decision-' + item.decision}>
+      <XCircle size={12}/><span>{reasonLabel(item.kind)}{item.count ? ` · ${item.count}` : ''}{item.signals?.length ? ` · ${item.signals.join(', ')}` : ''}</span>
+    </li>)}</ul>}
+    {loading && <p className="audit-loading">Lecture du journal d’audit…</p>}
+    {error && <p className="audit-loading" role="status">{error}</p>}
+    {data?.entries?.length > 0 && <ol className="audit-entries">{data.entries.map(entry => <li key={entry.seq} className={'audit-' + entry.action + (entry.decision === 'blocked' ? ' is-blocked' : '')}>
+      <time dateTime={entry.at}>{new Date(entry.at).toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit', second: '2-digit'})}</time>
+      <strong>{auditActions[entry.action] || entry.action}</strong>
+      <span>{[entry.agent && (roleNames[entry.agent] || entry.agent), entry.tool && (tools[entry.tool] || entry.tool), entry.from && `${roleNames[entry.from] || entry.from} → ${roleNames[entry.to] || entry.to}`,
+        entry.decision === 'blocked' ? 'bloqué' : entry.decision === 'allowed' ? 'autorisé' : '', entry.reason && entry.action === 'security' ? reasonLabel(entry.reason) : entry.outcome || '',
+        entry.documents?.length ? plural(entry.documents.length, 'document', 'documents') : '', Number.isFinite(entry.inputTokens) ? `${entry.inputTokens.toLocaleString('fr-FR')} + ${(entry.outputTokens || 0).toLocaleString('fr-FR')} tokens` : '',
+        Number.isFinite(entry.costUsd) ? `${entry.costUsd.toLocaleString('fr-FR', {maximumSignificantDigits: 3})} $` : '', Number.isFinite(entry.durationMs) ? formatDuration(entry.durationMs) : ''].filter(Boolean).join(' · ')}</span>
+      <code title={'Empreinte : ' + entry.hash}>{String(entry.hash).slice(0, 8)}</code>
     </li>)}</ol>}
   </section>;
 }

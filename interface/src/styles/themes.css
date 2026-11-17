@@ -1276,3 +1276,27 @@
     height: auto;
   }
 }
+
+/* Audit : journal chaîné, transferts signés et décisions de sécurité (lot 2). */
+.agent-audit { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+.agent-audit header { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem; justify-content: space-between; }
+.agent-audit h3 { flex: 1 1 100%; margin: .25rem 0 0; font-family: var(--serif); font-size: var(--title-s); font-weight: 400; }
+.audit-chain { display: inline-flex; align-items: center; gap: .4rem; font-family: var(--mono); font-size: var(--text-caption); padding: .3rem .6rem; border: 1px solid var(--line); background: var(--surface); }
+.audit-chain.is-valid { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+.audit-chain.is-broken { color: #A34630; border-color: #A34630; }
+.audit-handoffs, .audit-security, .audit-entries { list-style: none; margin: .75rem 0 0; padding: 0; display: grid; gap: .35rem; }
+.audit-handoffs li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .75rem; padding: .45rem .6rem; background: var(--surface); border: 1px solid var(--line); font-size: var(--text-small); }
+.handoff-seq { font-family: var(--mono); font-size: var(--text-caption); color: var(--muted); }
+.handoff-verified { display: inline-flex; align-items: center; gap: .3rem; margin-left: auto; font-family: var(--mono); font-size: var(--text-micro); color: var(--ok); }
+.audit-security li { display: flex; align-items: center; gap: .45rem; padding: .4rem .6rem; font-size: var(--text-small); border-left: 3px solid #A34630; background: color-mix(in srgb, #A34630 6%, var(--surface)); }
+.audit-security li svg { color: #A34630; flex: none; }
+.audit-entries li { display: grid; grid-template-columns: auto minmax(7rem, auto) 1fr auto; align-items: baseline; gap: .25rem .75rem; padding: .35rem 0; border-bottom: 1px dotted var(--line); font-size: var(--text-small); }
+.audit-entries time, .audit-entries code { font-family: var(--mono); font-size: var(--text-caption); color: var(--muted); }
+.audit-entries li.is-blocked strong { color: #A34630; }
+.audit-loading { font-size: var(--text-small); color: var(--muted); }
+@media (max-width: 640px) {
+  .audit-entries li { grid-template-columns: auto 1fr; }
+  .audit-entries li span { grid-column: 1 / -1; }
+  .audit-entries li code { display: none; }
+  .handoff-verified { margin-left: 0; }
+}

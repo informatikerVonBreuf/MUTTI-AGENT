@@ -48,7 +48,7 @@ export default function ThemesPage({themes, chats, session, backend = {}, busy, 
           <div className="summary-pending" role="status"><span className="quiet-status"/>{preparationNote(session, backend, now)}</div>
         </aside>
       </div>
-      <AgentTransparency plan={session.agentPlan} run={session.lastRun}/>
+      <AgentTransparency plan={session.agentPlan} run={session.lastRun} threadId={session.id}/>
     </div>;
   }
   return <div className="themes-page">
