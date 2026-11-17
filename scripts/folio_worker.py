@@ -342,27 +342,56 @@ def evidence_payload(claims, passages):
     return {"claims": claims, "passages": [p["id"] for p in passages]}
 
 
-COMPANY_NAME = re.compile(r"\b(meta|facebook|google|alphabet|apple|amazon)\b", re.IGNORECASE)
+# Mêmes noms et tickers que les alias de la recherche (interface/server/retrieval.mjs).
+COMPANIES = {"meta": "Meta", "facebook": "Meta", "google": "Google", "alphabet": "Google", "goog": "Google",
+             "googl": "Google", "apple": "Apple", "aapl": "Apple", "amazon": "Amazon", "amzn": "Amazon", "aws": "Amazon"}
+COMPANY_NAME = re.compile(r"\b(" + "|".join(sorted(COMPANIES, key=len, reverse=True)) + r")\b", re.IGNORECASE)
 YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+QUERY_LIMIT = 4000  # borne de la requête de recherche, comptée comme le serveur Node : en unités UTF-16
+
+
+def companies_in(text):
+    return list(dict.fromkeys(COMPANIES[name.lower()] for name in COMPANY_NAME.findall(text)))
+
+
+def years_in(text):
+    return list(dict.fromkeys(YEAR.findall(text)))
 
 
 def chat_question(job):
-    """Une relance (« et sur la même période ? ») reprend la dernière question de l'utilisateur.
+    """Une relance (« et sur la même période ? », « et pour Apple ? ») reçoit ce qui lui manque.
 
-    Sans cela, la recherche et le vérificateur ne savent pas de quelle entreprise ni de quelle période
-    il s'agit. La reprise n'a lieu que si la relance ne nomme pas elle-même une entreprise et une année.
+    Sans cela, la recherche et le vérificateur ne savent pas de quelle entreprise ni de quelle période il
+    s'agit. Entreprise et année manquantes viennent, chacune, de la question précédente la plus récente qui
+    les nomme ; le sujet vient de la fin des deux dernières questions, d'où sont retirées les entreprises et
+    années que la relance remplace. Une question qui nomme une entreprise et une année reste telle quelle.
     """
     question = job["question"]
-    if (COMPANY_NAME.search(question) and YEAR.search(question)) or len(question) > 3600:
+    companies, years = companies_in(question), years_in(question)
+    if companies and years:
         return question
     asked = [m["content"] for m in job.get("context", {}).get("recentMessages", [])
              if isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str)]
     if asked and asked[-1].strip() == question.strip():
         asked = asked[:-1]
-    previous = next((text for text in reversed(asked) if COMPANY_NAME.search(text) or YEAR.search(text)), None)
-    if not previous:
+    kept_companies = companies or next((companies_in(text) for text in reversed(asked) if companies_in(text)), [])
+    kept_years = years or next((years_in(text) for text in reversed(asked) if years_in(text)), [])
+    if kept_companies == companies and kept_years == years:
         return question
-    return question + "\nQuestion précédente : " + " ".join(previous.split())[:300]
+
+    def topic(text):
+        text = COMPANY_NAME.sub(lambda m: m.group(0) if COMPANIES[m.group(0).lower()] in kept_companies else "…", text)
+        text = YEAR.sub(lambda m: m.group(0) if m.group(0) in kept_years else "…", text)
+        return " ".join(text.split())[-200:]
+
+    # Une question précédente qui contient une consigne suspecte ne prête que ses noms d'entreprise et ses années.
+    topics = [topic(text) for text in asked[-2:] if not screen_tool_output(text)]
+    lines = [question]
+    if topics:
+        lines.append("Questions précédentes : " + " / ".join(topics))
+    lines.append("Entreprises et périodes reprises : " + ", ".join(kept_companies + kept_years))
+    enriched = "\n".join(lines)
+    return enriched if len(enriched.encode("utf-16-le")) // 2 <= QUERY_LIMIT else question
 
 
 def run_chat(job):
