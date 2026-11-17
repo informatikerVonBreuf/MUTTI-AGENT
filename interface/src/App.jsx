@@ -7,11 +7,14 @@ import HomePage from './pages/HomePage.jsx';
 import LibraryPage from './pages/LibraryPage.jsx';
 import ChatPage from './pages/ChatPage.jsx';
 import ThemesPage from './pages/ThemesPage.jsx';
+import AccountPage from './pages/AccountPage.jsx';
+import PrivacyPage, {PrivacyNotice} from './pages/PrivacyPage.jsx';
+import {readPreference, writePreference} from './preferences.mjs';
 import {DeleteModal, DocumentModal, MemoryModal, RenameModal, ScopeModal, ThemeModal} from './modals/Dialogs.jsx';
 import {api, json} from './api.mjs';
 import {backendSentence, backendShortLabels, backendState, pageLabels, plural} from './format.mjs';
 
-const PAGES = ['home', 'library', 'chat', 'themes'];
+const PAGES = ['home', 'library', 'chat', 'themes', 'account', 'privacy'];
 const NAVIGATION = [
   ['home', Home, 'Accueil', 'Accueil'],
   ['library', Library, 'Bibliothèque', 'Bibliothèque'],
@@ -24,7 +27,7 @@ const readPage = () => {
   return PAGES.includes(value) ? value : 'home';
 };
 const readMotion = () => {
-  try { return localStorage.getItem('folio-motion') === 'paused' || window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
+  try { return readPreference('folio-motion') === 'paused' || window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
 };
 
 function BackendChip({backend, onCheck}) {
@@ -37,7 +40,7 @@ function BackendChip({backend, onCheck}) {
   return <span className={'backend-chip state-' + state} title={label} role="status" aria-label={label}>{content}</span>;
 }
 
-export default function App({onOpenLogin, onSignOut, accountLabel, accessMode = 'local_preview'}) {
+export default function App({onOpenLogin, onSignOut, accountLabel, accessMode = 'local_preview', user = null, onSessionRefresh}) {
   const [workspace, setWorkspace] = useState(null);
   const [page, setPage] = useState(readPage);
   const [libraryView, setLibraryView] = useState({company: null, query: '', type: 'all', year: 'all'});
@@ -68,9 +71,11 @@ export default function App({onOpenLogin, onSignOut, accountLabel, accessMode = 
 
   useEffect(() => {
     document.documentElement.dataset.motion = motionPaused ? 'paused' : 'running';
-    try { localStorage.setItem('folio-motion', motionPaused ? 'paused' : 'running'); } catch {}
+    writePreference('folio-motion', motionPaused ? 'paused' : 'running');
   }, [motionPaused]);
-  useEffect(() => { document.documentElement.dataset.theme = 'atelier'; return load(); }, [load]);
+  // Un sous-compte invité n'ouvre l'atelier qu'après avoir choisi son mot de passe : chargement à ce moment-là.
+  const forcedPassword = Boolean(user?.mustChangePassword);
+  useEffect(() => { document.documentElement.dataset.theme = 'atelier'; if (forcedPassword) return undefined; return load(); }, [load, forcedPassword]);
   useEffect(() => {
     if (!toast) return undefined;
     const timeout = setTimeout(() => setToast(''), 5000);
@@ -242,7 +247,7 @@ export default function App({onOpenLogin, onSignOut, accountLabel, accessMode = 
     if (await changeThread(scopeThread, {documentIds}, message)) setModal(null);
   }
 
-  const documents = workspace?.documents || [], threads = workspace?.threads || [];
+  const documents = workspace?.documents || [], threads = workspace?.threads || [], companies = workspace?.companies || [];
   const chats = threads.filter(item => item.kind === 'chat'), themes = threads.filter(item => item.kind === 'thematic');
   const backend = workspace?.backend || {connected: false};
   const activity = {chat: chats.some(item => item.runStatus === 'running'), themes: themes.some(item => item.runStatus === 'running')};
@@ -254,6 +259,13 @@ export default function App({onOpenLogin, onSignOut, accountLabel, accessMode = 
     onPriority: (thread, priority) => changeThread(thread, {priority}),
     onRename: rename, onDelete: askDelete, onOpenDocument: openDocument,
   };
+
+  // Sous-compte invité : son code d’invitation doit être remplacé avant tout accès à l’atelier.
+  if (user?.mustChangePassword) return <div className="folio-app folio-forced" data-page="account">
+    <main id="main-content" className="forced-account" tabIndex={-1}><AccountPage forced onPasswordChanged={onSessionRefresh}/>
+      {onSignOut && <button className="text-button" onClick={() => onSignOut().catch(err => setError(err.message))}><LogOut size={14}/>Se déconnecter</button>}</main>
+    <PrivacyNotice/>
+  </div>;
 
   return <div className="folio-app" data-page={page}>
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); mainRef.current?.focus(); }}>Aller au contenu</a>
@@ -276,7 +288,8 @@ export default function App({onOpenLogin, onSignOut, accountLabel, accessMode = 
         <div className="topbar-actions">
           {workspace && <BackendChip backend={backend} onCheck={checkBackend}/>}
           <MotionControl paused={motionPaused} onChange={setMotionPaused}/>
-          <span className="topbar-account" title={accountLabel ? 'Connecté : ' + accountLabel : undefined}><UserRound size={13} aria-hidden="true"/><span>{accountLabel || (accessMode === 'local_preview' ? 'Aperçu local' : 'Espace personnel')}</span></span>
+          {accessMode === 'authenticated' ? <a href="#account" className={'topbar-account' + (page === 'account' ? ' is-current' : '')} title={accountLabel ? 'Mon compte : ' + accountLabel : 'Mon compte'} aria-current={page === 'account' ? 'page' : undefined} onClick={event => { event.preventDefault(); navigate('account'); }}><UserRound size={13} aria-hidden="true"/><span>{accountLabel || 'Mon compte'}</span></a>
+            : <span className="topbar-account"><UserRound size={13} aria-hidden="true"/><span>Aperçu local</span></span>}
           {onSignOut && <button className="connection-shortcut" onClick={async () => { try { await onSignOut(); } catch (err) { setError(err.message); } }} title={accountLabel ? 'Se déconnecter de ' + accountLabel : 'Se déconnecter'} aria-label="Se déconnecter"><LogOut size={14}/><span>Déconnexion</span></button>}
           {onOpenLogin && <button className="connection-shortcut" onClick={onOpenLogin} aria-label="Afficher la page de connexion"><UserRound size={14}/><span>Connexion</span></button>}
         </div>
@@ -288,6 +301,8 @@ export default function App({onOpenLogin, onSignOut, accountLabel, accessMode = 
             {page === 'home' && <HomePage workspace={workspace} backend={backend} busy={busy} onNavigate={navigate} onNewChat={() => newChat()} onNewTheme={newTheme} onOpenThread={openThread} onCheckBackend={checkBackend}/>}
             {page === 'library' && <LibraryPage workspace={workspace} view={libraryView} onViewChange={patch => setLibraryView(previous => ({...previous, ...patch}))} busy={busy} sending={sending} onOpenDocument={openDocument} onNewChat={newChat}/>}
             {page === 'chat' && <ChatPage threads={chats} thread={chat} busy={busy} sending={sending} panelProps={panelProps} onSelect={openThread} onCreate={() => newChat()} onDelete={askDelete} onClose={() => setChat(null)}/>}
+            {page === 'account' && <AccountPage companies={companies} onPasswordChanged={onSessionRefresh}/>}
+            {page === 'privacy' && <PrivacyPage onBack={() => navigate('home')}/>}
             {page === 'themes' && <ThemesPage themes={themes} chats={chats} session={themeSession} backend={backend} busy={busy} sending={sending} panelProps={panelProps} onOpenThread={openThread} onCloseSession={() => setThemeSession(null)} onNewTheme={newTheme} onDelete={askDelete}/>}
           </ErrorBoundary>
         </main>}
@@ -298,6 +313,7 @@ export default function App({onOpenLogin, onSignOut, accountLabel, accessMode = 
     {modal === 'delete' && deleteTarget && <DeleteModal target={deleteTarget} busy={busy} onClose={closeModal} onConfirm={deleteConversation}/>}
     {modal === 'rename' && renameTarget && <RenameModal target={renameTarget} onClose={closeModal} onSave={saveTitle}/>}
     {modal === 'memory' && memoryThread && <MemoryModal thread={memoryThread} busy={busy} onClose={closeModal} onAdd={addMemory} onEdit={editMemory} onForget={forget}/>}
+    <PrivacyNotice/>
     {toast && <div className="app-toast" role="status"><Check size={16}/><span>{toast}</span><button aria-label="Fermer la notification" onClick={() => setToast('')}><X size={13}/></button></div>}
   </div>;
 }
