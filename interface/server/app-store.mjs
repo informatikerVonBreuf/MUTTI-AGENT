@@ -51,12 +51,15 @@ export async function createAppStore({projectRoot,storageDirectory,backendState=
   }
   const allowedDocuments=actor=>{
     if(!documentAcl||!actor)return null;
+    // ACL dynamique (sous-comptes : entreprises autorisées par le propriétaire) ou statique (FOLIO_DOCUMENT_ACL).
+    if(typeof documentAcl==='function'){const rule=documentAcl(actor);return rule?documents.filter(doc=>rule.includes('*')||rule.includes(doc.company)).map(doc=>doc.id):null;}
     const rule=documentAcl[actor.id]??documentAcl[actor.email];
     if(!rule)return documentAcl['*']?documents.filter(doc=>documentAcl['*'].includes('*')||documentAcl['*'].includes(doc.company)).map(doc=>doc.id):null;
     return documents.filter(doc=>rule.includes('*')||rule.includes(doc.company)).map(doc=>doc.id);
   };
-  // Une conversation créée par un compte n'est visible que par lui ; les anciennes (sans propriétaire) restent à l'atelier unique.
-  const owns=(thread,actor)=>!thread.ownerId||!actor||thread.ownerId===actor.id;
+  // Une conversation créée par un compte n'est visible que par lui ; les anciennes (sans propriétaire) restent au propriétaire :
+  // un sous-compte ne les voit jamais.
+  const owns=(thread,actor)=>!actor||(thread.ownerId?thread.ownerId===actor.id:actor.role!=='member');
   const threadById=id=>state.threads.find(thread=>thread.id===id);
   const requireThread=id=>threadById(id)||fail('Conversation introuvable.',404);
   const linkedNotes=thread=>thread.kind!=='thematic'?[]:thread.sourceThreadIds.flatMap(id=>{const source=threadById(id);return source?source.memory.map(note=>({...note,sourceThreadId:source.id,sourceThreadTitle:source.title})):[];});

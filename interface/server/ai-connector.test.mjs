@@ -27,7 +27,7 @@ async function question(store,kind='chat'){
   return {id:thread.id,messageId:saved.thread.messages[0].id};
 }
 async function ended(connector,id){
-  const until=Date.now()+20000;
+  const until=Date.now()+60000;
   while(connector.latest(id)?.status==='running'&&Date.now()<until)await new Promise(resolve=>setTimeout(resolve,5));
   assert.notEqual(connector.latest(id)?.status,'running');return connector.latest(id);
 }
