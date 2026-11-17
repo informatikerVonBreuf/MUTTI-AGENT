@@ -32,6 +32,35 @@ Les cartes d’agents exposent la tâche, les permissions et le livrable attendu
 
 Chaque état s’explique avec des données réelles : état du modèle IA dans la barre supérieure et sur l’accueil, compteurs du corpus et de la mémoire, reprise des derniers échanges, dates relatives, étapes d’analyse avec leur durée réelle, passages consultés, sources numérotées avec page, titres de rapports lisibles (« Meta — 10-K 2024 »), filtres par type et par exercice, export Markdown des échanges, confirmation avant d’oublier un point de mémoire, compteur de caractères à l’approche des limites. Aucune progression n’est simulée.
 
+## Le chantier des agents (17 novembre 2026)
+
+Les agents sont présentés comme les ouvriers d’un chantier, avec de grandes étiquettes-emojis :
+- 📐 le planificateur, chef de chantier ;
+- ⛏️ le chercheur, carrier qui extrait les « pierres », c’est-à-dire les passages ;
+- 📏 le vérificateur, contrôleur ;
+- 🧱 le rédacteur, maçon qui monte le mur avec les seules pierres vérifiées.
+
+Entre deux ouvriers passe un 📦 « colis scellé » : c’est le transfert signé réel, avec son numéro et son contenu (plan, pierres brutes, pierres contrôlées, mur terminé). Les barrières de sécurité déclenchées apparaissent en 🚧. Un personnage ne s’anime qu’à la réception d’un événement réel « au travail » du worker. L’animation s’arrête avec `prefers-reduced-motion` ou le bouton de pause. Rien n’est rejoué ni simulé.
+
+Le chantier apparaît en direct dans le suivi d’une question (repliable une fois l’analyse terminée) et en entier dans la transparence des résumés thématiques. Chaque fiche d’ouvrier indique sa durée réelle, ses appels au modèle, ses tokens, son coût et son empreinte estimée.
+
+## Voir ce qui est consulté et ce que cela coûte
+
+- **Passages consultés** : chaque recherche réelle est listée (question envoyée, rapports, page, extrait de 280 caractères, durée, passages écartés). « Ouvrir à la page » ouvre le PDF à la bonne page, ou le texte avec le passage surligné dans son contexte.
+- **Sources cliquables** : une citation ouvre le rapport à la page citée, le passage repéré dans le texte extrait.
+- **Indice d’appui** sous chaque réponse : « appui croisé » (plusieurs rapports) ou « appui unique », calculé uniquement à partir des citations exactes contrôlées. Ce n’est pas une probabilité de vérité ; une infobulle le dit.
+- **Abstention explicite** : sans preuve suffisante, le suivi l’indique (« Abstention : preuves insuffisantes »), avec le nombre de passages examinés et des pistes de reformulation.
+- **Coût et planète** : le coût réel et l’empreinte estimée apparaissent sous chaque analyse, avec l’équivalent arithmétique en minutes d’ampoule LED de 10 W. La page **Mesures** (04, propriétaire seulement) affiche les durées p50/p95/p99 par parcours et par agent, la latence des routes, les coûts cumulés, l’empreinte cumulée, la méthode et les sources.
+- **Suggestions de questions** construites à partir du corpus réel (entreprises et dernier exercice annuel disponible).
+
+## Accueil, bibliothèque, export, prise en main
+
+- **Accueil** : un bloc « Folio en 10 secondes » (Lire, Questionner, Relier) avec les vrais chiffres du corpus mène aux trois parcours.
+- **Bibliothèque** : un « aperçu rapide » montre le début du rapport sans ouvrir le lecteur, et une ligne « consultés récemment » apparaît si les préférences locales sont acceptées.
+- **Export du rapport** : Word (.docx, généré dans le navigateur sans dépendance), PDF (impression du seul rapport, navigation et outils masqués) et Markdown.
+- **Visite guidée** en quatre étapes au premier lancement : bibliothèque, question, chantier, coût. On peut la passer ; elle se ferme avec Échap et ne revient pas une fois vue.
+- **Navigation** : cinq entrées. La barre d’onglets mobile utilise des libellés courts (« Chat », « Thèmes »).
+
 ## Scène de lecture
 
 Le lecteur stylisé est remplacé par un humain d’apparence photographique qui consulte un livre ouvert. `public/reader-human.png` est une image générée, servie localement. Une page subdivisée en maillage 3D se courbe autour de la reliure et bascule automatiquement toutes les 6,4 secondes. Le maillage est calé sur les coordonnées du livre dans la photo ; image et page partagent le même cadrage responsive. Il ne s’agit pas d’une vidéo ni d’une personne réellement filmée en train de tourner les pages.
