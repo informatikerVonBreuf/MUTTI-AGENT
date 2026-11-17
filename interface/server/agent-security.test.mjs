@@ -48,6 +48,16 @@ test('Audit : chaîne d’empreintes, modification et suppression détectées, a
   assert.equal(reopened.forRun('r1').length,4);
 });
 
+test('Audit : le numéro d’un transfert signé ne remplace jamais le numéro de ligne (régression)',async t=>{
+  const directory=await temp(t,'folio-audit-seq-');
+  const audit=await createAuditLog({storageDirectory:directory});
+  audit.append('run_start',{runId:'r1'});
+  for(let i=1;i<=3;i++)audit.append('handoff',{runId:'r1',from:'server',to:'researcher',handoffSeq:i,seq:i,trust:'trusted_instruction'});
+  const result=await audit.verify();assert.equal(result.valid,true);assert.equal(result.entries,4);
+  assert.deepEqual(audit.forRun('r1').map(entry=>entry.seq),[1,2,3,4]);assert.deepEqual(audit.forRun('r1').slice(1).map(entry=>entry.handoffSeq),[1,2,3]);
+  await audit.close();
+});
+
 test('CSRF lié à la session, débit borné, corps validés strictement',async t=>{
   const directory=await temp(t,'folio-guards-');
   const csrf=await createCsrfGuard({storageDirectory:directory}),session='S'.repeat(43);

@@ -63,7 +63,7 @@ export async function createAIConnector({store,config,runner=runPython,modelRequ
         const key=newEnvelopeKey(),verifier=createEnvelopeVerifier(key,run.id),first=kind==='thematic'?'planner':'researcher';
         const opening=sealEnvelope(key,{runId:run.id,from:'server',to:first,seq:1,payload:{question:message.content}});
         verifier.verify(opening,{payload:{question:message.content}});
-        const recordHandoff=envelope=>{run.handoffs.push({seq:envelope.seq,from:envelope.from_role,to:envelope.to_role,trust:envelope.trust_level,at:new Date(envelope.ts).toISOString(),payloadHash:envelope.payload_hash.slice(0,12),verified:true});audited(audit,'handoff',{...base,from:envelope.from_role,to:envelope.to_role,seq:envelope.seq,trust:envelope.trust_level});save().catch(()=>{});};
+        const recordHandoff=envelope=>{run.handoffs.push({seq:envelope.seq,from:envelope.from_role,to:envelope.to_role,trust:envelope.trust_level,at:new Date(envelope.ts).toISOString(),payloadHash:envelope.payload_hash.slice(0,12),verified:true});audited(audit,'handoff',{...base,from:envelope.from_role,to:envelope.to_role,handoffSeq:envelope.seq,trust:envelope.trust_level});save().catch(()=>{});};
         recordHandoff(opening);
         const trace={runId:run.id,threadId,kind:thread.kind,userRef};
         const job={mode:kind,question:message.content,context,trace,policy:{...policy,runId:run.id,userRef},envelopeKey:key,envelope:opening};

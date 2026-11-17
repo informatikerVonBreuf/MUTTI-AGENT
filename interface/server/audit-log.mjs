@@ -20,7 +20,7 @@ export function sanitize(fields){
     out[key]=value;
   }
   if(fields.documents!==undefined){if(!Array.isArray(fields.documents)||fields.documents.length>40||fields.documents.some(id=>typeof id!=='string'||!SAFE.test(id)))throw new Error('Documents d’audit invalides.');out.documents=[...new Set(fields.documents)];}
-  for(const key of ['durationMs','seq','count','inputTokens','outputTokens']){const value=fields[key];if(value===undefined)continue;if(!Number.isFinite(value)||value<0)throw new Error('Nombre d’audit invalide : '+key);out[key]=Math.round(value);}
+  for(const key of ['durationMs','handoffSeq','count','inputTokens','outputTokens']){const value=fields[key];if(value===undefined)continue;if(!Number.isFinite(value)||value<0)throw new Error('Nombre d’audit invalide : '+key);out[key]=Math.round(value);}
   if(fields.costUsd!==undefined&&fields.costUsd!==null){if(!Number.isFinite(fields.costUsd)||fields.costUsd<0)throw new Error('Coût d’audit invalide.');out.costUsd=Math.round(fields.costUsd*1e8)/1e8;}
   if(fields.signals!==undefined){if(!Array.isArray(fields.signals)||fields.signals.some(s=>typeof s!=='string'||!SAFE.test(s)))throw new Error('Signaux d’audit invalides.');out.signals=fields.signals.slice(0,10);}
   return out;
@@ -54,7 +54,8 @@ export async function createAuditLog({storageDirectory,now=()=>new Date()}){
     startupCheck:check,
     append(action,fields={}){
       if(!ACTIONS.has(action))throw new Error('Action d’audit inconnue.');
-      const entry={seq:++seq,at:now().toISOString(),action,...sanitize(fields),prevHash:previous};
+      // Numéro de ligne, date, action et chaînage posés après les champs : aucun champ ne peut les remplacer.
+      const entry={...sanitize(fields),seq:++seq,at:now().toISOString(),action,prevHash:previous};
       const hash=hashEntry(entry);previous=hash;const record={...entry,hash};
       recent.push(record);if(recent.length>2000)recent.shift();
       writes=writes.catch(()=>{}).then(()=>fs.appendFile(file,JSON.stringify(record)+'\n',{mode:0o600}));
