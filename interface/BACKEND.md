@@ -35,9 +35,11 @@ Pour réutiliser un fichier privé sans recopier ses secrets, créer localement 
 
 `FOLIO_DISABLE_AI=1` désactive le fournisseur pour les tests. `.runtime` et `.env` sont ignorés par Git. Aucun secret ne rejoint le bundle React, les conversations ou le statut public. Le coffre AWS reste à raccorder. Le lancement utilise les certificats du système (`--use-system-ca`) sans désactiver TLS.
 
+Autres variables : `FOLIO_PROVIDER` (`gemini` ou `simulated`), `FOLIO_TRACING=on` et `FOLIO_LANGSMITH_PROJECT` (traçage LangSmith), `FOLIO_PRICE_INPUT_PER_MTOK` et `FOLIO_PRICE_OUTPUT_PER_MTOK` (tarif négocié), `FOLIO_HOST` et `FOLIO_ALLOWED_HOSTS` (conteneur).
+
 ## Données et protections
 
-Gemini reçoit la question, les passages, les notes admises et jusqu’à huit messages récents. L’utilisateur doit autoriser ce fournisseur pour ses données. Les historiques sont conservés localement ; leur contexte est néanmoins transmis lors d’une analyse. La journalisation LangSmith est désactivée dans le worker.
+Gemini reçoit la question, les passages, les notes admises et jusqu’à huit messages récents. L’utilisateur doit autoriser ce fournisseur pour ses données. Les historiques sont conservés localement ; leur contexte est néanmoins transmis lors d’une analyse. LangSmith reste désactivé par défaut ; avec `FOLIO_TRACING=on`, seules la structure, les durées, les rôles et les tokens partent, contenus masqués.
 
 Une seule analyse à la fois ; jusqu’à huit passages par recherche, 1 800 caractères chacun et 12 000 au total. Jusqu’à trois recherches pour un résumé, six appels modèle admis au maximum, 35 secondes par appel et 180 secondes par traitement. Les sorties sont bornées. Gemini 3 utilise `thinkingLevel: low` et un plafond de 4 096 tokens de sortie, raisonnement compris ; l’adaptateur conserve `thinkingBudget: 0` pour une configuration explicite Gemini 2.5. Le contrôle de présence du modèle ne suffit pas à prouver qu’une génération sera acceptée : les erreurs 404 et paramètres refusés sont distinguées, et un échec du fournisseur met son statut à jour. Arrêter coupe le worker et les requêtes en cours ; un appel déjà accepté peut rester facturé.
 
@@ -62,7 +64,7 @@ node scripts/check-rag-api.mjs
 $env:FOLIO_TEST_PYTHON='C:/Python314/python.exe'
 node scripts/check-agent-bridge.mjs
 # Depuis la racine :
-C:/Python314/python.exe -m unittest scripts.test_folio_worker scripts.test_security_boundaries -v
+C:/Python314/python.exe -m unittest scripts.test_folio_worker scripts.test_security_boundaries scripts.test_observability -v
 ```
 
 Ces tests utilisent un modèle simulé, sans appels facturés. Le pont lance réellement Python/LangGraph. Le rendu React statique ne remplace pas un test navigateur ou utilisateur. Les essais réels autorisés ont maintenant été effectués séparément ; leurs résultats sont ci-dessous.
@@ -85,6 +87,17 @@ Chaque citation a été retrouvée textuellement dans le document exposé par l�
 Google refusait la génération Gemini 2.5 Flash pour cette clé bien que sa fiche soit consultable. Le choix actuel est fondé sur la [liste officielle des modèles](https://ai.google.dev/gemini-api/docs/models) et les [paramètres de raisonnement de generateContent](https://ai.google.dev/gemini-api/docs/generate-content/thinking). Le passage à l’API Interactions n’est pas nécessaire au fonctionnement validé ici.
 
 Qdrant reste non utilisé : la recherche est BM25 locale. L’authentification locale protège désormais les API ; Cognito reste non activé. L’isolation multi-utilisateur et le coffre AWS restent à connecter avant un accès partagé. Aucun commit, push ou déploiement public n’a été effectué.
+
+## Observabilité et conteneurs — 17 novembre 2026
+
+- Chaque appel modèle est attribué au rôle qui l’a demandé ; le serveur refuse un rôle sans droit d’appel dans le parcours (par exemple le planificateur dans un chat).
+- Tokens réels, coût au tarif daté et empreinte estimée sont conservés par agent dans `lastRun.usage`. Les passages consultés à chaque recherche sont conservés dans `lastRun.retrievals` (références et extrait de 280 caractères). Les passages écartés par le filtre sont comptés dans `lastRun.quarantined`.
+- `GET /api/metrics` renvoie p50, p95 et p99 des analyses, des agents et des routes HTTP, plus les totaux de coût et d’empreinte. Le journal `.runtime/metrics/runs.jsonl` ne contient aucun contenu.
+- Le worker reçoit un environnement minimal. La clé Gemini ne lui est plus transmise : les appels modèle passent par le serveur. La clé LangSmith ne lui est transmise que si `FOLIO_TRACING=on`.
+- `FOLIO_PROVIDER=simulated` fournit des réponses littérales étiquetées pour les tests de charge, sans coût.
+- L’index BM25 est préchauffé au démarrage, et le texte des rapports est mis en cache avec un `ETag`.
+
+Détails, méthodes et mesures : [OBSERVABILITE.md](OBSERVABILITE.md). Lancement en conteneurs : [README.md](README.md#avec-docker).
 
 ## Validation reproductible et connexion — 15 novembre 2026
 

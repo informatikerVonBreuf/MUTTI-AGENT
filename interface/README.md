@@ -15,6 +15,16 @@ npm.cmd start
 
 Node 22.22+ est requis. `npm.cmd run dev` active le développement. Le serveur écoute uniquement sur la boucle locale. Les scripts utilisent les certificats du système sans désactiver TLS.
 
+### Avec Docker
+
+Depuis la racine du dépôt : `docker compose up --build`, puis ouvrir **http://localhost:8080** et créer le compte propriétaire du conteneur.
+
+- `frontend` : build Vite servi par nginx non root, avec CSP, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` et HSTS lorsque la connexion est en HTTPS. Seul ce service est publié, et uniquement sur `127.0.0.1`.
+- `backend` : serveur Node et worker Python/LangGraph dans le même conteneur, utilisateur non root, dépendances Python figées par empreinte, système de fichiers en lecture seule, `cap_drop: [ALL]`.
+- `qdrant` : déclaré pour la suite, sur le réseau interne uniquement ; la recherche reste BM25.
+- Le `.env` de la racine est monté comme secret Docker ; il n’est copié dans aucune image. Les conversations vivent dans le volume `runtime`, le corpus est monté en lecture seule.
+- `FOLIO_TRACING=on docker compose up` active LangSmith (contenus masqués). Voir [OBSERVABILITE.md](OBSERVABILITE.md) pour les mesures, le coût, l’empreinte et les tests de charge k6.
+
 ## Accès et fonctionnalités
 
 La page initiale et `#login` ouvrent la connexion locale. Au premier démarrage, créer le compte propriétaire et conserver le code de récupération affiché une seule fois. Aucun mot de passe par défaut n’est fourni. Les API métier exigent désormais une session ; le raccourci d’aperçu anonyme est retiré.
@@ -56,7 +66,7 @@ $env:FOLIO_TEST_PYTHON='C:/Python314/python.exe'
 node scripts/check-agent-bridge.mjs
 ```
 
-Depuis la racine : `C:/Python314/python.exe -m unittest scripts.test_folio_worker scripts.test_security_boundaries -v`.
+Depuis la racine : `C:/Python314/python.exe -m unittest scripts.test_folio_worker scripts.test_security_boundaries scripts.test_observability -v`.
 
 Ces contrôles déterministes n’appellent pas de fournisseur payant. Le pont lance réellement Python/LangGraph avec un modèle simulé. Le rendu React statique et les requêtes HTTP ne remplacent pas un E2E navigateur ni un test utilisateur. Voir aussi [la note de sécurité](SECURITE-RAG-AGENTS-2026.md).
 
