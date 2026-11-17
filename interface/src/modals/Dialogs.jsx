@@ -7,19 +7,38 @@ import {companyLabel, documentParts, documentTitle, formatFullDate, formatRelati
 const PREVIEW_LIMIT = 100000;
 const prefersText = () => typeof window !== 'undefined' && window.matchMedia?.('(max-width: 800px), (pointer: coarse)').matches;
 
-export function DocumentModal({document: doc, busy, sending, onClose, onNewChat}) {
+// Passage cité retrouvé dans le texte extrait : on montre son contexte, le passage surligné.
+function locateQuote(content, quote) {
+  if (!content || !quote) return null;
+  const probe = quote.replace(/…$/, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (probe.length < 12) return null;
+  const flat = content.replace(/\s+/g, ' ');
+  const index = flat.indexOf(probe);
+  if (index < 0) return null;
+  const end = Math.min(flat.length, index + Math.max(probe.length, quote.length));
+  return {before: flat.slice(Math.max(0, index - 400), index), match: flat.slice(index, end), after: flat.slice(end, end + 400)};
+}
+
+export function DocumentModal({document: doc, focus = null, busy, sending, onClose, onNewChat}) {
   const [format, setFormat] = useState('pdf');
   const [expanded, setExpanded] = useState(false);
   useEffect(() => {
     if (!doc) return;
     setExpanded(false);
-    setFormat(doc.hasPdf && !(doc.hasText && prefersText()) ? 'pdf' : 'text');
+    // Un passage cité sans page connue s'affiche mieux dans le texte, où il est surligné.
+    setFormat(doc.hasPdf && !(doc.hasText && (prefersText() || (focus?.quote && !focus?.page))) ? 'pdf' : 'text');
   }, [doc?.id]);
   const parts = doc ? documentParts(doc) : null;
   const length = doc?.content?.length || 0;
+  const located = doc && focus?.quote ? locateQuote(doc.content, focus.quote) : null;
+  const pdfUrl = doc ? `/api/documents/${doc.id}/pdf${focus?.page ? `#page=${focus.page}` : ''}` : '';
   return <Modal title={doc ? documentTitle(doc) : 'Ouvrir le document'} eyebrow={doc ? `BIBLIOTHÈQUE / ${companyLabel(doc.company).toUpperCase()}` : 'BIBLIOTHÈQUE'} onClose={onClose} className="document-modal" busy={!doc}>
     {doc ? <>
-      <p className="document-meta">{parts.kind}{parts.period ? ` · ${parts.period}` : ''} · {doc.hasPdf ? 'PDF original' : 'PDF indisponible'}{doc.hasText ? ` · texte extrait (${length.toLocaleString('fr-FR')} caractères)` : ''}</p>
+      <p className="document-meta">{parts.kind}{parts.period ? ` · ${parts.period}` : ''} · {doc.hasPdf ? 'PDF original' : 'PDF indisponible'}{doc.hasText ? ` · texte extrait (${length.toLocaleString('fr-FR')} caractères)` : ''}{focus?.page ? ` · ouvert à la page ${focus.page}` : ''}</p>
+      {focus?.quote && <figure className="document-focus">
+        <figcaption>Passage cité{focus.page ? ` · page ${focus.page}` : ''}{located ? ' · retrouvé dans le texte extrait' : ''}</figcaption>
+        {located ? <p>…{located.before}<mark>{located.match}</mark>{located.after}…</p> : <blockquote>{focus.quote}</blockquote>}
+      </figure>}
       <div className="document-viewer-toolbar">
         <button className="text-button" onClick={() => onNewChat([doc.id])} disabled={busy || sending}><MessageSquare size={14}/>Discuter de ce PDF</button>
         <div className="format-tabs" role="group" aria-label="Format d’affichage">
@@ -27,12 +46,12 @@ export function DocumentModal({document: doc, busy, sending, onClose, onNewChat}
           {doc.hasText && <button className={format === 'text' ? 'active' : ''} aria-pressed={format === 'text'} onClick={() => setFormat('text')}>Texte</button>}
         </div>
         <span className="document-links">
-          {doc.hasPdf && <a className="text-button" href={`/api/documents/${doc.id}/pdf`} target="_blank" rel="noopener"><ExternalLink size={14}/>Nouvel onglet</a>}
+          {doc.hasPdf && <a className="text-button" href={pdfUrl} target="_blank" rel="noopener"><ExternalLink size={14}/>Nouvel onglet</a>}
           <a className="text-button" href={format === 'pdf' ? `/api/documents/${doc.id}/pdf?download=1` : `/api/documents/${doc.id}?download=1`} download><ArrowDownToLine size={14}/>Télécharger {format === 'pdf' ? 'le PDF' : 'le texte (.md)'}</a>
         </span>
       </div>
       {format === 'pdf' ? <>
-        <iframe className="pdf-viewer" title={documentTitle(doc)} src={`/api/documents/${doc.id}/pdf`}/>
+        <iframe className="pdf-viewer" title={documentTitle(doc)} src={pdfUrl}/>
         <p className="document-hint">Si l’aperçu reste vide sur votre appareil, utilisez « Nouvel onglet »{doc.hasText ? ' ou l’affichage « Texte »' : ''}.</p>
       </> : <div className="document-text">
         {length > PREVIEW_LIMIT && !expanded && <p className="document-hint">Affichage des {PREVIEW_LIMIT.toLocaleString('fr-FR')} premiers caractères sur {length.toLocaleString('fr-FR')}.</p>}

@@ -13,6 +13,7 @@ import './styles/chat.css';
 import './styles/themes.css';
 import './styles/auth.css';
 import './styles/account.css';
+import './styles/worksite.css';
 import AuthGateway from './AuthGateway.jsx';
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><AuthGateway/></React.StrictMode>);

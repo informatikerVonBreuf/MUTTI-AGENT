@@ -1,6 +1,9 @@
 import React from 'react';
 import {Check, CheckCircle2, ChevronRight, Circle, Clock3, Eye, LoaderCircle, LockKeyhole, MinusCircle, ShieldCheck, XCircle} from 'lucide-react';
 import {formatDuration, plural, toolLabels} from './format.mjs';
+import {reasonLabel} from './security-labels.mjs';
+import {AgentWorksite, ConsultedSources, RunFootprint} from './components/AgentWorksite.jsx';
+export {reasonLabel, securityReasons} from './security-labels.mjs';
 
 const states = {awaiting_backend: 'PRÉVU', pending: 'EN ATTENTE', running: 'EN COURS', completed: 'TERMINÉ', failed: 'ÉCHEC', cancelled: 'ARRÊTÉ', interrupted: 'INTERROMPU', not_used: 'NON UTILISÉ'};
 const planStates = {running: 'Exécution en cours', completed: 'Dernière exécution terminée', failed: 'Dernière exécution en échec', cancelled: 'Dernière exécution arrêtée', interrupted: 'Dernière exécution interrompue'};
@@ -15,7 +18,7 @@ function StateIcon({status}) {
   return <Circle size={12}/>;
 }
 
-export default function AgentTransparency({plan, run, threadId}) {
+export default function AgentTransparency({plan, run, threadId, documents = [], onOpenDocument}) {
   if (!plan) return null;
   const executed = plan.status !== 'prepared_not_executed';
   const totalMs = run?.startedAt && run?.finishedAt ? Date.parse(run.finishedAt) - Date.parse(run.startedAt) : NaN;
@@ -50,6 +53,9 @@ export default function AgentTransparency({plan, run, threadId}) {
       <strong>{event.label}</strong>
       <span>{eventStates[event.status] || states[event.status] || event.status}{event.tool ? ` · ${tools[event.tool] || event.tool}` : ''}</span>
     </li>)}</ol>}
+    {executed && run && <AgentWorksite run={run}/>}
+    {executed && run && <RunFootprint run={run}/>}
+    {executed && run && <ConsultedSources run={run} documents={documents} onOpenDocument={onOpenDocument}/>}
     {executed && run && <AuditTrail threadId={threadId} run={run}/>}
   </section>;
 }
@@ -57,20 +63,6 @@ export default function AgentTransparency({plan, run, threadId}) {
 const auditActions = {auth: 'Connexion', run_start: 'Début d’analyse', run_end: 'Fin d’analyse', tool_call: 'Appel d’outil', model_call: 'Appel au modèle', handoff: 'Transfert signé', security: 'Décision de sécurité', policy: 'Politique'};
 const roleNames = {server: 'Serveur', planner: 'Planificateur', researcher: 'Chercheur', verifier: 'Vérificateur', writer: 'Rédacteur'};
 const trustNames = {trusted_instruction: 'consigne du serveur', model_plan: 'plan du modèle', untrusted_evidence: 'preuves non vérifiées', verified_evidence: 'preuves vérifiées', verified_summary: 'synthèse vérifiée'};
-export const securityReasons = {
-  passage_quarantine: 'Passage écarté : instruction détectée dans un document',
-  memory_quarantine: 'Note de mémoire écartée : instruction détectée',
-  tool_output_quarantine: 'Sortie d’outil écartée par le second rempart',
-  handoff_rejected: 'Transfert entre agents refusé (intégrité)',
-  tool_call: 'Appel d’outil refusé',
-  model_call: 'Appel au modèle refusé',
-  budget: 'Budget de l’analyse dépassé',
-  citation_check: 'Affirmations sans preuve exacte rejetées',
-  policy: 'Politique de sécurité appliquée',
-  csrf_invalid: 'Requête sans jeton CSRF refusée',
-  rate_limited: 'Trop de demandes rapprochées',
-};
-export const reasonLabel = value => securityReasons[String(value || '').split(':')[0]] || String(value || '');
 
 // Vue « Audit » : journal chaîné du serveur pour la dernière exécution, et intégrité de la chaîne.
 export function AuditTrail({threadId, run}) {

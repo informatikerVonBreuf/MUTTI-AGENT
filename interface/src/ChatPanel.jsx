@@ -1,10 +1,11 @@
 import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {ArrowLeft, ArrowUp, Brain, Check, Copy, Download, FileText, MessageSquare, Pencil, Plus, Search, ShieldCheck, SlidersHorizontal, Trash2, X} from 'lucide-react';
+import {ArrowLeft, ArrowUp, Brain, Check, Copy, Download, FileDown, FileText, MessageSquare, Pencil, Plus, Search, ShieldCheck, SlidersHorizontal, Trash2, X} from 'lucide-react';
 import {FolioMark} from './Identity.jsx';
 import RunActivity from './RunActivity.jsx';
 import {CharacterCount, Markdown, useNow} from './components/Primitives.jsx';
-import {backendState, documentTitle, formatFullDate, formatMessageTime, formatRelative, plural, recencyGroup} from './format.mjs';
+import {backendState, companyLabel, documentTitle, formatFullDate, formatMessageTime, formatRelative, plural, recencyGroup} from './format.mjs';
 import {downloadThread} from './export.mjs';
+import {downloadDocx} from './export-docx.mjs';
 
 export const priorities = {normal: 'Normal', important: 'Important', essential: 'Essentiel'};
 const MAX_QUESTION = 4000;
@@ -16,13 +17,39 @@ function Citations({citations, documents, onOpenDocument}) {
     <p className="chat-sources-heading"><ShieldCheck size={13}/>{plural(citations.length, 'source contrôlée', 'sources contrôlées')} · extraits retrouvés mot pour mot</p>
     <ol className="chat-citations">{citations.map((citation, index) => {
       const doc = byId.get(citation.documentId);
-      return <li key={index}><button type="button" onClick={() => onOpenDocument(citation.documentId)} aria-label={`Ouvrir la source ${index + 1} : ${doc ? documentTitle(doc) : citation.title}${citation.page ? ', page ' + citation.page : ''}`}>
+      return <li key={index}><button type="button" onClick={() => onOpenDocument(citation.documentId, {page: citation.page, quote: citation.quote})} aria-label={`Ouvrir la source ${index + 1} : ${doc ? documentTitle(doc) : citation.title}${citation.page ? ', page ' + citation.page : ''}`}>
         <span className="citation-number">{index + 1}</span>
         <span className="citation-text"><strong>{doc ? documentTitle(doc) : citation.title}</strong>{citation.page ? <span className="citation-page">p. {citation.page}</span> : null}
           {citation.quote && <small className="citation-quote">« {citation.quote} »</small>}</span>
       </button></li>;
     })}</ol>
   </div>;
+}
+
+// Indice d'appui documentaire : uniquement des faits vérifiables (citations exactes, sources distinctes).
+// Ce n'est pas une probabilité que la réponse soit vraie.
+function AnswerSupport({message}) {
+  const sources = new Set(message.citations.map(citation => citation.documentId)).size;
+  const level = message.simulated ? ['simulated', 'Simulé'] : sources >= 2 ? ['strong', 'Appui croisé'] : ['simple', 'Appui unique'];
+  return <p className={'answer-support support-' + level[0]} title="Indice d’appui documentaire, pas une probabilité de vérité.">
+    <strong>{level[1]}</strong>
+    <span>{plural(message.citations.length, 'citation exacte contrôlée', 'citations exactes contrôlées')} · {plural(sources, 'rapport distinct', 'rapports distincts')}{message.simulated ? ' · réponse simulée, sans modèle' : sources < 2 ? ' · à recouper si la décision en dépend' : ''}</span>
+  </p>;
+}
+
+// Suggestions tirées du corpus réel : entreprises présentes et dernier exercice annuel disponible.
+const of = name => (/^[aeiouyhâéèêîôû]/i.test(name) ? 'd’' : 'de ') + name;
+export function questionSuggestions(documents = []) {
+  const latest = new Map();
+  for (const doc of documents) if (doc.type === '10-K' && doc.year && (!latest.has(doc.company) || doc.year > latest.get(doc.company))) latest.set(doc.company, doc.year);
+  const entries = [...latest].sort((a, b) => a[0].localeCompare(b[0]));
+  const suggestions = [];
+  const [first, second] = entries;
+  if (first) suggestions.push(`Quel est le chiffre d’affaires total ${of(companyLabel(first[0]))} pour l’exercice ${first[1]} ?`);
+  if (second) suggestions.push(`Quels risques ${companyLabel(second[0])} met-il en avant dans son rapport annuel ${second[1]} ?`);
+  if (entries[2]) suggestions.push(`Quel est le résultat net ${of(companyLabel(entries[2][0]))} pour l’exercice ${entries[2][1]} ?`);
+  if (first && second && first[1] === second[1]) suggestions.push(`Compare le résultat opérationnel ${of(companyLabel(first[0]))} et ${of(companyLabel(second[0]))} en ${first[1]}.`);
+  return suggestions.slice(0, 4);
 }
 
 function MessageItem({message, thread, backend, documents, onRetain, onMemory, onOpenDocument}) {
@@ -37,6 +64,7 @@ function MessageItem({message, thread, backend, documents, onRetain, onMemory, o
     <div className="message-meta"><span>{user ? 'Vous' : 'Folio'}</span><time dateTime={message.createdAt} title={formatFullDate(message.createdAt)}>{formatMessageTime(message.createdAt)}</time></div>
     <div className="message-body">{user ? <p>{message.content}</p> : <Markdown text={message.content}/>}</div>
     {showCitations && <Citations citations={message.citations} documents={documents} onOpenDocument={onOpenDocument}/>}
+    {!user && showCitations && <AnswerSupport message={message}/>}
     <div className="message-actions">
       {user && <button type="button" onClick={() => retained ? onMemory(thread) : onRetain(thread, message)} aria-label={retained ? 'Voir ce point dans la mémoire' : 'Retenir ce message dans la mémoire'}>{retained ? <Check size={13}/> : <Brain size={13}/>}<span>{retained ? 'En mémoire' : 'Retenir'}</span></button>}
       {!user && <button type="button" onClick={copy} aria-label="Copier la réponse">{copied ? <Check size={13}/> : <Copy size={13}/>}<span>{copied ? 'Copiée' : 'Copier'}</span></button>}
@@ -92,6 +120,7 @@ export default function ChatPanel({thread, backend = {connected: false}, sending
       {thread && <div className="chat-tools">
         <button className="small-icon" title="Renommer" aria-label="Renommer la conversation" disabled={sending} onClick={() => onRename(thread)}><Pencil size={16}/></button>
         {thread.messages.some(message => message.role === 'assistant') && <button className="small-icon" title="Exporter en Markdown" aria-label="Exporter cet échange en Markdown" onClick={() => downloadThread(thread, documents)}><Download size={16}/></button>}
+        {thread.messages.some(message => message.role === 'assistant') && <button className="small-icon" title="Exporter en Word (.docx)" aria-label="Exporter cet échange en Word" onClick={() => downloadDocx(thread, documents)}><FileDown size={16}/></button>}
         <button className="memory-trigger" disabled={sending} onClick={() => onMemory(thread)} aria-label={`Mémoire de l’échange : ${plural(thread.memory.length, 'point')}`}><Brain size={16}/><span>Mémoire</span><b>{thread.memory.length}</b></button>
         <button className="small-icon danger-hover" title="Supprimer" aria-label="Supprimer cette conversation" disabled={sending} onClick={() => onDelete(thread)}><Trash2 size={16}/></button>
       </div>}
@@ -121,9 +150,10 @@ export default function ChatPanel({thread, backend = {connected: false}, sending
           <li><Brain size={14}/>Objectifs, préférences et décisions sont retenus pour la suite de l’échange.</li>
         </ul>
         <div className="prompt-suggestions">{(thread?.kind === 'thematic' ? ['Je veux un résumé des points clés de ce thème.', 'Priorité : distinguer les décisions et les questions ouvertes.'] : ['Je veux comprendre les résultats de Meta.', 'Mon objectif est de comparer Google et Amazon.']).map(text => <button key={text} onClick={() => { setDraft(text); textareaRef.current?.focus(); }} disabled={sending}>{text}<Plus size={13}/></button>)}</div>
+        {thread?.kind !== 'thematic' && questionSuggestions(documents).length > 0 && <div className="question-suggestions" aria-label="Questions possibles sur le corpus">{questionSuggestions(documents).map(text => <button key={text} type="button" onClick={() => { setDraft(text); textareaRef.current?.focus(); }} disabled={sending}><Search size={12}/> {text}</button>)}</div>}
       </div>}
       {thread?.messages.map(message => <MessageItem key={message.id} message={message} thread={thread} backend={backend} documents={documents} onRetain={onRetain} onMemory={onMemory} onOpenDocument={onOpenDocument}/>)}
-      <RunActivity run={thread?.lastRun} onRetry={() => onRetryRun?.(thread)} onStop={() => onStopRun?.(thread)} disabled={sending}/>
+      <RunActivity run={thread?.lastRun} onRetry={() => onRetryRun?.(thread)} onStop={() => onStopRun?.(thread)} disabled={sending} documents={documents} onOpenDocument={onOpenDocument}/>
       <div ref={bottomRef}/>
     </div>
     <form className="chat-composer" onSubmit={submit}>
