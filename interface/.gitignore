@@ -5,3 +5,5 @@ dist/
 *.log
 .npm-cache/
 load/results/
+demo/build/
+demo/*.mp4
