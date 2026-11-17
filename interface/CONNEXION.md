@@ -27,6 +27,42 @@ Les fichiers sont dans `.runtime/auth/owner.json`, `.runtime/auth/sessions.json`
 
 Ce parcours protège un **atelier à propriétaire unique**. Il ne constitue pas un service multi-utilisateur avec espaces et droits distincts. L’isolation est préparée : chaque nouvelle conversation porte son propriétaire, celle d’un autre compte répond « introuvable », et `FOLIO_DOCUMENT_ACL` restreint les entreprises consultables avant la recherche. Il faudra encore des comptes multiples, un stockage par utilisateur et des tests E2E avant d’inviter plusieurs propriétaires indépendants.
 
+## Comptes, sous-comptes et protections (17 novembre 2026)
+
+**Vérification « je ne suis pas un robot ».** La création du compte, la connexion et la récupération exigent de cocher une case. Le navigateur résout alors un petit calcul (preuve de travail SHA-256, 15 bits, une à quelques secondes) sur un défi signé par le serveur. Ce défi est à usage unique, valable 5 minutes, et ne peut être renvoyé en moins de 0,8 s. Un champ « site web » invisible sert de piège : un automate qui le remplit est refusé. Aucun service tiers (reCAPTCHA, hCaptcha, Turnstile) n’est appelé et aucun suivi n’est fait. Cette vérification rend les attaques massives coûteuses ; elle ne prouve pas absolument qu’un humain est présent. `FOLIO_HUMAN_CHECK=off` la désactive pour un environnement de test fermé.
+
+**Protection des comptes.**
+- Verrou par adresse IP : six échecs, quinze minutes.
+- Verrou par compte, quelle que soit l’adresse : huit échecs, puis 15 min, 30 min, 1 h… jusqu’à 24 h.
+- Une adresse inconnue subit le même calcul scrypt et reçoit le même message : la réponse ne révèle pas si un compte existe.
+- Règle de mot de passe inspirée du NIST SP 800-63B : au moins 12 caractères, pas un mot de passe courant ou répétitif, pas l’adresse elle-même.
+- **Double authentification TOTP** facultative (RFC 6238, codes à 6 chiffres, applications usuelles). Le code est demandé après le mot de passe, au moyen d’un défi de 5 minutes ; un code déjà utilisé est refusé. L’activation et la désactivation exigent le mot de passe et un code valide.
+- **Sessions** : la page « Mon compte » liste les sessions ouvertes (navigateur et système résumés, jamais l’empreinte du cookie) et permet de déconnecter toutes les autres. Changer de mot de passe ou activer la double authentification ferme aussi les autres sessions.
+
+**Sous-comptes.** Le propriétaire crée des sous-comptes depuis « Mon compte » : adresse et entreprises consultables. Un code d’invitation, affiché une seule fois, sert de mot de passe provisoire ; il doit être remplacé à la première connexion avant tout accès (`PASSWORD_CHANGE_REQUIRED`).
+
+Un sous-compte voit uniquement ses propres conversations. Les conversations antérieures appartiennent au propriétaire. Il ne consulte que les rapports des entreprises autorisées : l’ACL est appliquée avant la recherche, y compris pour les PDF. Il ne gère pas les comptes et ne voit ni les mesures globales ni la vérification du journal d’audit.
+
+Le propriétaire peut :
+- désactiver un sous-compte, ce qui ferme immédiatement ses sessions ;
+- le réactiver ;
+- émettre une nouvelle invitation, ce qui réinitialise son mot de passe et sa double authentification ;
+- le supprimer.
+
+Ses conversations restent alors stockées mais ne sont plus accessibles. Les fichiers sont `.runtime/auth/members.json` (hachés, mode 600) et `.runtime/auth/human.key`.
+
+**Déni de service.**
+- Le serveur Node limite le débit par adresse IP : 300 requêtes par minute sur l’API, 10 par minute avec une réserve de 30 sur la connexion.
+- Il coupe les connexions lentes (en-têtes en 20 s, requête complète en 30 s) et borne les connexions simultanées (256).
+- En conteneur, nginx ajoute ses propres limites : 20 requêtes par seconde avec une réserve de 60, 30 par minute sur `/api/auth/`, 30 connexions simultanées par IP, délais courts. Il transmet l’adresse réelle (`X-Real-IP`, prise en compte seulement avec `FOLIO_TRUST_PROXY=1`).
+- Une seule analyse IA à la fois, avec des budgets par exécution.
+
+Ces protections absorbent un usage abusif depuis quelques adresses. Une attaque distribuée de grande ampleur exige une protection en amont (hébergeur, CDN).
+
+**Cookies et confidentialité.** Seuls des cookies strictement nécessaires sont déposés (`folio_session`, `folio_csrf`, et `folio_oauth_state` avec Cognito). Un bandeau l’explique à la première visite, et la page `#privacy`, consultable sans compte, détaille ces cookies, les données transmises à Gemini et à LangSmith, et le journal d’audit.
+
+Les préférences d’affichage (animations, visite guidée, rapports récents) ne sont enregistrées sur l’appareil que si l’utilisateur l’accepte. « Ne rien mémoriser » les efface.
+
 ## API
 
 | Route | Comportement |
@@ -37,6 +73,11 @@ Ce parcours protège un **atelier à propriétaire unique**. Il ne constitue pas
 | `POST /api/auth/login` | Vérification du mot de passe et rotation de session |
 | `POST /api/auth/reset` | Récupération par code, remplacement du mot de passe et révocation des sessions |
 | `POST /api/auth/logout` | Révocation de la session et suppression du cookie |
+| `GET /api/auth/challenge` | Défi anti-robot signé (preuve de travail) |
+| `POST /api/auth/mfa` | Second facteur TOTP après un mot de passe correct |
+| `GET /api/account`, `GET /api/account/sessions` | Mon compte, sessions ouvertes |
+| `POST /api/account/password`, `/sessions/revoke-others`, `/mfa/setup`, `/mfa/enable`, `/mfa/disable` | Mot de passe, sessions, double authentification |
+| `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/:id` | Sous-comptes (propriétaire seulement) |
 | `GET /api/auth/redirect` | Début du parcours Cognito si configuré |
 | `GET /api/auth/callback` | Retour Cognito, validation puis création de la session locale |
 

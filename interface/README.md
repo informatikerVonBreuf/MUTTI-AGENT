@@ -42,7 +42,7 @@ La recherche actuelle est **BM25 sur le corpus local**. Qdrant n’est pas utili
 ## Organisation du front
 
 - `src/App.jsx` : coquille (navigation, barre supérieure, messages, état global et appels API) ; `src/api.mjs` et `src/format.mjs` (dates, pluriels, titres de rapports, état du modèle) ; `src/export.mjs` (export Markdown).
-- `src/pages/` : accueil, bibliothèque, conversations, résumés thématiques. `src/modals/Dialogs.jsx` : fenêtres de dialogue. `src/components/` : primitives (Markdown, Modal, compteurs), en-têtes de page, garde-fou d’erreur.
+- `src/pages/` : accueil, bibliothèque, conversations, résumés thématiques, « Mon compte » (mot de passe, double authentification, sessions, sous-comptes) et « Confidentialité » (cookies, données transmises, préférences locales, consultable sans compte). `src/modals/Dialogs.jsx` : fenêtres de dialogue. `src/components/` : primitives (Markdown, Modal, compteurs), en-têtes de page, garde-fou d’erreur.
 - `src/styles/` : `tokens.css` (échelle typographique, gabarit, cibles), puis une feuille par zone (`base`, `modal`, `shell`, `home`, `library`, `chat`, `themes`, `auth`). L’ordre d’import dans `main.jsx` fait partie de la cascade.
 
 Les règles d’adaptation aux écrans sont décrites dans [DIRECTION-VISUELLE.md](DIRECTION-VISUELLE.md).

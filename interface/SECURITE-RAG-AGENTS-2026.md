@@ -80,6 +80,18 @@ node interface/scripts/verify-audit.mjs
 node interface/scripts/redteam.mjs
 ```
 
+### Comptes, robots, déni de service et confidentialité
+
+Ajoutés le même jour à la demande du propriétaire ; détail dans [CONNEXION.md](CONNEXION.md#comptes-sous-comptes-et-protections-17-novembre-2026).
+
+- Vérification « je ne suis pas un robot » sans service tiers : preuve de travail sur un défi signé, à usage unique, avec un délai minimal et un champ piège. Elle protège la création du compte, la connexion et la récupération.
+- Verrous progressifs par compte, en plus des verrous par adresse IP. Les réponses ne permettent pas de deviner si un compte existe. Règle de mot de passe NIST et double authentification TOTP.
+- Sessions listées et révocables. Sous-comptes créés par le propriétaire : invitation à usage unique, mot de passe imposé, conversations isolées, ACL par entreprise, désactivation immédiate.
+- Déni de service : débit par IP sur toute l’API et plus strict sur la connexion, délais contre les connexions lentes, connexions simultanées bornées dans Node et dans nginx.
+- Cookies strictement nécessaires seulement, bandeau d’information, page de confidentialité publique, préférences locales soumises au choix de l’utilisateur.
+
+Tests : `server/account-security.test.mjs` (TOTP avec le vecteur de la RFC 6238, règle de mot de passe, verrous, défi anti-robot, sous-comptes, double authentification, sessions) et `scripts/check-rag-api.mjs` (parcours HTTP complet). Un parcours dans un vrai navigateur (Edge) est décrit dans le rapport de validation.
+
 L’environnement Python local de l’atelier (`C:/Python314`) garde ses anciennes versions tant qu’il n’est pas mis à jour par son propriétaire ; l’image Docker utilise les versions corrigées.
 
 ## Mise à jour du 13 novembre 2026
