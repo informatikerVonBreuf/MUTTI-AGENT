@@ -105,4 +105,19 @@ Tous les seuils sont respectés, sans échec HTTP ni analyse refusée. Une premi
 | Chiffre d’affaires Meta 2024 | 41,3 s | 27,2 s | 0,6 s | 11 846 / 158 | 0,0095 $ | 0,48 Wh · 0,06 g CO₂e · 0,52 mL |
 | Résultat net Apple 2024 | 33,1 s | 22,6 s | 0,9 s | 9 314 / 253 | 0,0079 $ | 0,48 Wh · 0,06 g CO₂e · 0,52 mL |
 
+**Charge k6 après le lot de sécurité (CSRF, validation, audit, middleware LangChain), même machine, 3 minutes :**
+
+| Mesure | p50 | p95 | p99 | Échantillons |
+| --- | ---: | ---: | ---: | ---: |
+| API de lecture (1 → 5 → 10 utilisateurs) | 6 ms | 55 ms | 114 ms | 289 |
+| Analyse complète simulée, avec 15 à 25 s de lecture entre deux questions | 3,2 s | 7,2 s | 8,5 s | 8 |
+
+Tous les seuils sont respectés, sans échec. Le premier passage après l’ajout des contrôles dépassait largement les seuils (analyse p50 21,8 s, API p95 4,2 s). Quatre corrections expliquent l’écart :
+- l’agent LangChain et sa pile de middleware sont compilés une fois par processus au lieu d’un graphe par appel (1,9 s → 0,08 s par appel) ;
+- un worker de réserve charge LangGraph et LangChain à l’avance (16,3 s → 1,9 s pour une question simulée sur ce poste), chaque analyse gardant son propre processus ;
+- le texte des rapports est compressé une fois en gzip à la mise en cache, et nginx compresse les fichiers statiques et le JSON ;
+- tous les rapports sont mis en cache au démarrage.
+
+Deux analyses enchaînées sans pause n’ont pas le temps de bénéficier du worker de réserve ; elles paient alors l’import de Python, de quelques secondes à 20 s sur une machine saturée.
+
 Les réponses obtenues (164 501 M$ et 93 736 M$) sont citées et contrôlées. Les deux durées incluent la construction de l’index à froid, corrigée ensuite par le préchauffage. Pour le second run, LangSmith a reçu l’arbre complet : racine, chercheur, recherche, deux appels modèle avec leurs tokens et leur coût, vérificateur. Les entrées et sorties étaient vides. Deux mesures ponctuelles ne constituent pas un benchmark.

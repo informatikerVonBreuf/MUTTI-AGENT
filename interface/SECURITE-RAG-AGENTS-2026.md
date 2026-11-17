@@ -1,5 +1,87 @@
 ﻿# Sécurité RAG et agents — Archive vivante
 
+## Mise à jour du 17 novembre 2026 — sécurité agent-à-agent
+
+Cette section décrit ce qui est désormais appliqué dans le code et testé. Les sections suivantes conservent l’historique.
+
+### Identité, permissions et budgets imposés par le serveur
+
+- Le serveur injecte dans chaque exécution une politique : 12 appels d’outils, 6 appels modèle, profondeur de délégation 1, 200 000 tokens, 0,25 $ et 180 s. Il y ajoute l’identité pseudonyme de l’utilisateur (empreinte SHA-256, jamais l’e-mail). Le worker ne peut qu’abaisser ces plafonds ; aucune valeur venant du modèle n’est acceptée.
+- `authorizeToolCall` est appliqué côté Node (recherche, synthèse), et son équivalent Python (`scripts/agent_security.py`) dans le vrai exécuteur du graphe. Il couvre la délégation du planificateur, la recherche, l’inspection des preuves et la synthèse. Un outil hors rôle, un argument hors contrat, une preuve hors périmètre, un budget épuisé ou l’échéance dépassée arrêtent l’analyse avec un code explicite.
+- Tokens et coût sont contrôlés après chaque appel modèle, des deux côtés. L’annulation coupe le worker et les requêtes en cours.
+
+### Messages inter-agents signés
+
+Chaque transfert porte `{run_id, from_role, to_role, seq, payload_hash, trust_level, ts}`, signé HMAC-SHA256 avec une clé tirée au hasard pour l’exécution et transmise au worker par stdin. Le modèle ne voit jamais cette clé. Le serveur signe l’ouverture (serveur → premier rôle). Le worker vérifie chaque réception et signe chaque transfert, que le serveur revérifie au fil de l’eau (`server/agent-envelopes.mjs`).
+
+Sont rejetés : signature fausse, exécution étrangère, rejeu, trou de séquence, transition hors matrice (par exemple chercheur → rédacteur sans vérificateur, ou délégation circulaire), confiance incompatible (le rédacteur n’accepte que des « preuves vérifiées »), charge modifiée. Le résultat final n’est publié que s’il arrive par la chaîne attendue et correspond à la charge du dernier transfert signé. Le contenu produit par un agent garde son niveau de confiance et ne devient jamais une instruction. Limite : ce mécanisme protège l’intégrité et l’ordre des transferts d’une exécution ; il ne protège pas d’un worker compromis, qui détient la clé.
+
+### Journal d’audit chaîné
+
+`.runtime/audit/audit.jsonl` est en ajout seul : chaque ligne contient l’empreinte de la précédente. Il enregistre :
+- connexions et déconnexions ;
+- début et fin d’analyse ;
+- appels d’outils, avec les documents et la décision ;
+- appels modèle, avec les tokens, le coût et la durée ;
+- transferts signés et décisions de sécurité.
+
+Les champs sont bornés à des identifiants courts : aucune question, aucun passage, aucune mémoire brute, aucun secret, aucun raisonnement. `node scripts/verify-audit.mjs` vérifie la chaîne (code de sortie 1 si elle est rompue). La page de transparence affiche une vue « Audit » : chaîne, transferts signés, décisions.
+
+### Défense en profondeur contre les injections
+
+1. **Séparation instructions/données** : passages et notes portent `trust` et `instructionAuthority: none` ; le prompt système le rappelle ; les données sont envoyées en JSON, jamais concaténées aux consignes.
+2. **Règles déterministes** après normalisation : caractères invisibles, homoglyphes, chiffres « leet », base64, hexadécimal, `%xx` et `\uXXXX` décodés. Les règles couvrent le français, l’anglais, l’espagnol, l’allemand, l’italien et le portugais : remplacement de consignes, usurpation de rôle, exfiltration de secrets, exécution d’outils, liens d’exfiltration, empoisonnement de mémoire, texte caché.
+3. **Classifieur statistique local** de second niveau : régression logistique sur mots et n-grammes de caractères, par fenêtres de phrases. Il est entraîné sur `server/injection-training.json` (80 attaques rédigées, 252 exemples légitimes dont 182 paragraphes Google/Amazon ; validation croisée en 5 plis : 65 attaques sur 80 détectées avec les règles, 2 faux positifs sur 252), sans appel externe. Ce n’est pas un modèle sémantique de type transformeur, écarté ici pour sa taille et ses conditions de licence ; le point d’accroche permet d’en brancher un.
+4. **Sorties d’outils filtrées** dans le worker (second rempart, rôle de `wrap_tool_call`), en plus du filtrage du serveur.
+5. **Middleware LangChain v1** autour de chaque appel modèle (`create_agent` sans outil, modèle-pont vers le serveur) :
+   - `PIIMiddleware` masque e-mails, cartes et adresses IP en entrée et en sortie, et les URL en sortie ;
+   - `ModelCallLimitMiddleware` limite à un appel par invocation ;
+   - le middleware maison vérifie la provenance avant le modèle et valide la sortie après (JSON, champs attendus, aucune instruction ni lien).
+6. **État LangGraph gardé** : chaque rôle n’écrit que ses clés, et les affirmations du modèle sont réduites aux champs du contrat.
+7. **Aucun outil réseau, fichier ou shell** n’est exposé au chat RAG ; un test l’impose en analysant les imports du worker.
+
+`HumanInTheLoopMiddleware` sera requis pour toute future action sensible ; aucune n’existe aujourd’hui.
+
+### Suite d’attaques
+
+`node interface/scripts/redteam.mjs` exécute 87 attaques (injections directes, indirectes PDF et mémoire, encodées, multilingues, texte caché, multi-tours, exfiltration par URL, délégation circulaire, fuite entre comptes, épuisement de budget, transferts falsifiés, écriture d’état, sorties d’un modèle supposé compromis) et 130 cas légitimes, dont 120 vrais paragraphes Meta et Apple tenus hors de l’entraînement. Résultats du 17 novembre 2026 ([rapport](../scripts/redteam/results/report.md)) :
+
+| Mesure | Résultat |
+| --- | ---: |
+| Attaques réussies (ASR) | 5 / 87 · 5,7 % |
+| Faux positifs | 1 / 130 · 0,8 % |
+| Passages légitimes écartés à tort lors de vraies recherches | 0 / 46 |
+| Tâches légitimes réussies de bout en bout (worker réel, modèle simulé, toutes défenses actives) | 6 / 6 |
+| Filtre de contenu : règles seules → règles + classifieur | ASR 22,5 % → 12,5 % |
+
+Échecs connus et assumés :
+- le chinois et l’arabe ne sont pas couverts ;
+- trois consignes découpées en fragments anodins sur plusieurs notes passent le filtre, qui juge chaque note séparément ;
+- une phrase légitime de gouvernance (« The Board may override… ») est écartée à tort.
+
+Ces cas ne sont pas corrigés en réglant le filtre sur le jeu de test. La suite n’évalue pas un attaquant adaptatif ni le comportement du vrai modèle face à ces textes.
+
+### Application
+
+- **CSRF** : jeton HMAC lié à la session (cookie `folio_csrf` lisible par la page, en-tête `X-CSRF-Token`), exigé sur toute modification authentifiée et sur la déconnexion. S’y ajoutent le contrôle d’origine et `SameSite=Strict`.
+- **Limitation de débit** par utilisateur sur les routes IA (analyses, sondage du modèle, préparation RAG, messages), avec `Retry-After`.
+- **Validation stricte des corps JSON** : champs connus seulement, types et longueurs bornés, 64 Kio au plus. Il n’existe pas de route d’envoi de fichier.
+- **En-têtes de sécurité** sur les pages servies par Node (CSP sans script en ligne, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, COOP), et par nginx en conteneur.
+- **Isolation préparée** : chaque nouvelle conversation porte son propriétaire, et celle d’un autre compte répond « introuvable », y compris par appel direct. `FOLIO_DOCUMENT_ACL` applique une ACL documentaire par entreprise **avant** la recherche. La démonstration reste mono-propriétaire ; Qdrant n’est pas utilisé.
+- **Dépendances** : `npm audit` ne signale aucune vulnérabilité. `pip-audit` sur les dépendances figées du worker en signalait 5 au 17 novembre 2026 (PYSEC-2026-2192, PYSEC-2026-2564, PYSEC-2026-4240, PYSEC-2026-2582, GHSA-f4xh-w4cj-qxq8). Elles sont corrigées : `langchain` 1.4.8, `langchain-core` 1.7.4, `langgraph` 1.2.19, `langsmith` 0.14.17, toutes publiées depuis plus de deux semaines. `pip-audit` ne signale plus rien, et les 36 tests Python et le contrôle du pont passent dans le conteneur avec ces versions.
+
+```powershell
+# Dépendances JavaScript
+cd interface; npm.cmd audit --omit=dev
+# Dépendances Python figées du worker (dans un conteneur, sans toucher à l'environnement local)
+docker run --rm -v "${PWD}\docker:/w:ro" python:3.12-slim-bookworm sh -c "pip install -q pip-audit && pip-audit -r /w/requirements-worker.txt --disable-pip"
+# Intégrité du journal d'audit, suite d'attaques
+node interface/scripts/verify-audit.mjs
+node interface/scripts/redteam.mjs
+```
+
+L’environnement Python local de l’atelier (`C:/Python314`) garde ses anciennes versions tant qu’il n’est pas mis à jour par son propriétaire ; l’image Docker utilise les versions corrigées.
+
 ## Mise à jour du 13 novembre 2026
 
 Le parcours actuel est décrit dans [BACKEND.md](BACKEND.md) : exécuteur Node/Python, Gemini, recherche BM25 automatique et graphe LangGraph borné. Le serveur conserve les permissions et budgets. Les citations exactes et années sources sont contrôlées ; un appel modèle vérifie leur cohérence avec les affirmations, avec des erreurs possibles. Les événements affichés proviennent du worker.

@@ -35,7 +35,7 @@ Pour réutiliser un fichier privé sans recopier ses secrets, créer localement 
 
 `FOLIO_DISABLE_AI=1` désactive le fournisseur pour les tests. `.runtime` et `.env` sont ignorés par Git. Aucun secret ne rejoint le bundle React, les conversations ou le statut public. Le coffre AWS reste à raccorder. Le lancement utilise les certificats du système (`--use-system-ca`) sans désactiver TLS.
 
-Autres variables : `FOLIO_PROVIDER` (`gemini` ou `simulated`), `FOLIO_TRACING=on` et `FOLIO_LANGSMITH_PROJECT` (traçage LangSmith), `FOLIO_PRICE_INPUT_PER_MTOK` et `FOLIO_PRICE_OUTPUT_PER_MTOK` (tarif négocié), `FOLIO_HOST` et `FOLIO_ALLOWED_HOSTS` (conteneur).
+Autres variables : `FOLIO_PROVIDER` (`gemini` ou `simulated`), `FOLIO_TRACING=on` et `FOLIO_LANGSMITH_PROJECT` (traçage LangSmith), `FOLIO_PRICE_INPUT_PER_MTOK` et `FOLIO_PRICE_OUTPUT_PER_MTOK` (tarif négocié), `FOLIO_HOST` et `FOLIO_ALLOWED_HOSTS` (conteneur), `FOLIO_PREWARM=0` (désactive le worker de réserve), `FOLIO_MIDDLEWARE=off` (désactive le middleware LangChain, déconseillé), `FOLIO_DOCUMENT_ACL` (ACL documentaire par compte).
 
 ## Données et protections
 

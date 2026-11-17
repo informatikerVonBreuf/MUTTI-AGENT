@@ -64,9 +64,14 @@ npm.cmd run build
 node scripts/check-rag-api.mjs
 $env:FOLIO_TEST_PYTHON='C:/Python314/python.exe'
 node scripts/check-agent-bridge.mjs
+npm.cmd run test:redteam
+npm.cmd run audit:chain
+npm.cmd run audit:deps
 ```
 
-Depuis la racine : `C:/Python314/python.exe -m unittest scripts.test_folio_worker scripts.test_security_boundaries scripts.test_observability -v`.
+Depuis la racine : `C:/Python314/python.exe -m unittest scripts.test_folio_worker scripts.test_security_boundaries scripts.test_observability scripts.test_agent_security -v`.
+
+La sécurité agent-à-agent (politiques imposées par le serveur, transferts signés, journal d’audit chaîné, middleware LangChain, filtre d’injections à deux niveaux, CSRF, limitation de débit, isolation préparée) et les résultats de la suite d’attaques sont décrits dans [SECURITE-RAG-AGENTS-2026.md](SECURITE-RAG-AGENTS-2026.md).
 
 Ces contrôles déterministes n’appellent pas de fournisseur payant. Le pont lance réellement Python/LangGraph avec un modèle simulé. Le rendu React statique et les requêtes HTTP ne remplacent pas un E2E navigateur ni un test utilisateur. Voir aussi [la note de sécurité](SECURITE-RAG-AGENTS-2026.md).
 

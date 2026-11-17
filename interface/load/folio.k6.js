@@ -16,7 +16,10 @@ const VUS=Number(__ENV.MAX_VUS||10);
 
 const runDuration=new Trend('folio_run_duration',true);
 const runQueued=new Counter('folio_run_busy');
-const headers=extra=>({Host:HOST,Origin:ORIGIN,'Content-Type':'application/json',...extra});
+const runLimited=new Counter('folio_run_rate_limited');
+// Jeton CSRF déposé par le serveur dans le cookie folio_csrf, renvoyé sur chaque modification.
+const csrf=()=>{const values=http.cookieJar().cookiesForURL(BASE).folio_csrf;return values&&values.length?values[0]:'';};
+const headers=extra=>({Host:HOST,Origin:ORIGIN,'Content-Type':'application/json',...(csrf()?{'X-CSRF-Token':csrf()}:{}),...extra});
 
 export const options={
   // Chaque utilisateur virtuel garde sa session d'une itération à l'autre, comme un navigateur.
@@ -25,7 +28,7 @@ export const options={
     // Lecture de l'atelier : 1, puis 5, puis 10 utilisateurs virtuels avec pauses réalistes.
     api:{executor:'ramping-vus',exec:'browse',startVUs:1,stages:[{duration:'30s',target:1},{duration:'30s',target:5},{duration:'45s',target:VUS},{duration:'15s',target:0}],gracefulRampDown:'10s'},
     // Analyses : une à la fois, comme le serveur l'impose.
-    ai:{executor:'constant-vus',exec:'analyse',vus:1,duration:'2m',startTime:'5s'},
+    ai:{executor:'constant-vus',exec:'analyse',vus:1,duration:'3m',startTime:'5s'},
   },
   thresholds:{
     'http_req_duration{kind:api}':['p(95)<1000','p(99)<2000'],
@@ -56,7 +59,7 @@ export function setup(){
 }
 
 let session=false;
-function ensureSession(){if(!session){login();session=true;}}
+function ensureSession(){if(!session){login();http.get(BASE+'/api/auth/session',{headers:headers(),tags:{kind:'auth'}});session=true;}}
 
 export function browse(data){
   ensureSession();
@@ -84,12 +87,15 @@ export function analyse(){
   const started=Date.now();
   const res=http.post(BASE+'/api/threads/'+thread.id+'/run',JSON.stringify({messageId}),{headers:headers(),tags:{kind:'run',name:'start'}});
   if(res.status===409){runQueued.add(1);sleep(2);return;}
+  // La limitation de débit des analyses (par utilisateur) fait partie de la politique : elle est comptée, pas contournée.
+  if(res.status===429){runLimited.add(1);sleep(Number(res.headers['Retry-After']||20));return;}
   check(res,{'analyse acceptée':r=>r.status===202});
   let run=res.json();
   while(run&&run.status==='running'&&Date.now()-started<60000){sleep(0.5);run=http.get(BASE+'/api/threads/'+thread.id+'/run',{headers:headers(),tags:{kind:'run',name:'poll'}}).json();}
   runDuration.add(Date.now()-started);
   check(run,{'analyse terminée':r=>r&&['completed','failed'].includes(r.status),'analyse simulée':r=>r&&r.usage&&r.usage.simulated===true});
-  sleep(3);
+  // Temps de lecture réaliste avant la question suivante (une personne lit la réponse et ses sources).
+  sleep(15+Math.random()*10);
 }
 
 export function handleSummary(data){

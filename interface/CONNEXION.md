@@ -20,10 +20,12 @@ Le raccourci d’aperçu sans compte est retiré du serveur actif. Ouvrir direct
 - Le navigateur ne conserve aucun mot de passe ni jeton dans localStorage ou sessionStorage. Le code de récupération reste en mémoire le temps de son affichage.
 - Six échecs de connexion entraînent une limitation de quinze minutes pour l’adresse réseau locale.
 - Le serveur vérifie l’origine et refuse les appels intersites. Il écoute sur la boucle locale. Les échanges publics nécessiteront un hébergement HTTPS et la configuration adaptée.
+- Depuis le 17 novembre 2026, toute modification authentifiée (et la déconnexion) exige aussi le jeton CSRF lié à la session : cookie `folio_csrf`, lisible par la page, renvoyé en en-tête `X-CSRF-Token`. Un jeton périmé est remplacé et la demande rejouée une fois par l’interface. Les connexions, échecs, récupérations et déconnexions sont inscrits au journal d’audit chaîné, sans adresse ni mot de passe.
+- Les routes d’analyse sont limitées en débit par utilisateur, et les corps JSON sont validés strictement (champs inconnus refusés).
 
-Les fichiers sont dans `.runtime/auth/owner.json` et `.runtime/auth/sessions.json`, ignorés par Git. Les conversations existantes restent à leur emplacement et ne sont ni déplacées ni supprimées. Le coffre AWS reste à raccorder ; les secrets techniques sont actuellement lus dans le fichier privé configuré.
+Les fichiers sont dans `.runtime/auth/owner.json`, `.runtime/auth/sessions.json` et `.runtime/auth/csrf.key`, ignorés par Git. Les conversations existantes restent à leur emplacement et ne sont ni déplacées ni supprimées. Le coffre AWS reste à raccorder ; les secrets techniques sont actuellement lus dans le fichier privé configuré.
 
-Ce parcours protège un **atelier à propriétaire unique**. Il ne constitue pas un service multi-utilisateur avec espaces et droits distincts. Cette isolation devra être ajoutée avant d’inviter plusieurs propriétaires indépendants.
+Ce parcours protège un **atelier à propriétaire unique**. Il ne constitue pas un service multi-utilisateur avec espaces et droits distincts. L’isolation est préparée : chaque nouvelle conversation porte son propriétaire, celle d’un autre compte répond « introuvable », et `FOLIO_DOCUMENT_ACL` restreint les entreprises consultables avant la recherche. Il faudra encore des comptes multiples, un stockage par utilisateur et des tests E2E avant d’inviter plusieurs propriétaires indépendants.
 
 ## API
 
