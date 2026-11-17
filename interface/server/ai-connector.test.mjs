@@ -7,7 +7,7 @@ import {createAppStore} from './app-store.mjs';
 import {createAIConnector} from './ai-connector.mjs';
 import {BackendError} from './python-bridge.mjs';
 
-async function fixture(t,runner,{apiKey='fake-test-key'}={}){
+async function fixture(t,runner,{apiKey='fake-test-key',modelRequest,metrics,model='test'}={}){
   const directory=await fs.mkdtemp(path.join(os.tmpdir(),'folio-ai-'));
   const projectRoot=path.join(directory,'project'),storageDirectory=path.join(directory,'state');
   for(const company of ['meta','google']){
@@ -15,8 +15,8 @@ async function fixture(t,runner,{apiKey='fake-test-key'}={}){
     await fs.writeFile(path.join(folder,company+' 10-k 2024.md'),`# Annual results\n\n${company} total revenue was $100 million in 2024. Reported annual revenue includes the financial results for the year.`);
   }
   let connector;const store=await createAppStore({projectRoot,storageDirectory,backendState:()=>connector?.status()||{connected:false}});
-  const config={apiKey,projectRoot,storageDirectory,model:'test',qdrantUrl:'invalid-url',timeoutMs:2000};
-  connector=await createAIConnector({store,config,runner});
+  const config={apiKey,projectRoot,storageDirectory,model,qdrantUrl:'invalid-url',timeoutMs:2000};
+  connector=await createAIConnector({store,config,runner,...(modelRequest?{modelRequest}:{}),...(metrics?{metrics}:{})});
   t.after(async()=>{await connector.close();await store.close();assert.ok(path.resolve(directory).startsWith(path.resolve(os.tmpdir())+path.sep));await fs.rm(directory,{recursive:true,force:true});});
   return {store,connector,config};
 }
@@ -84,4 +84,28 @@ test('Un modèle visible mais refusé à la génération ne reste pas affiché d
   const {store,connector}=await fixture(t,async(config,job)=>{if(job.mode==='probe')return {connected:true};throw new BackendError('MODEL_NOT_FOUND');});
   await connector.probe();assert.equal(connector.status().connected,true);const q=await question(store);await connector.start(q.id,q);
   assert.equal((await ended(connector,q.id)).error.code,'MODEL_NOT_FOUND');assert.equal(connector.status().connected,false);assert.equal(connector.status().error.code,'MODEL_NOT_FOUND');assert.equal(store.getThread(q.id).messages.length,1);
+});
+
+test('Coût, empreinte et passages consultés : attribués au rôle réel, journal sans contenu',async t=>{
+  const appended=[];const metrics={append:async run=>{appended.push(JSON.parse(JSON.stringify(run)));}};
+  const modelRequest=async(config,request,{onUsage})=>{onUsage({inputTokens:1000,outputTokens:200,thoughtTokens:50,cachedTokens:0},120);return request.agent==='verifier'?{approvedIndices:[0]}:{};};
+  const runner=async(c,job,{onRetrieve,onEvent,onModel})=>{
+    const reported=[];const result=await grounded(job,{onRetrieve,onEvent});
+    await onModel({operation:'generate',agent:'researcher',system:'s',schema:{}},{reportUsage:u=>reported.push(u)});
+    await onModel({operation:'generate',agent:'verifier',system:'s',schema:{}},{reportUsage:u=>reported.push(u)});
+    assert.equal(reported.length,2);assert.ok(reported[0].costUsd>0);assert.equal(job.trace.kind,'chat');assert.match(job.trace.userRef,/^[a-f0-9]{16}$/);assert.doesNotMatch(JSON.stringify(job.trace),/owner@example/);
+    return result;
+  };
+  const {store,connector}=await fixture(t,runner,{modelRequest,metrics,model:'gemini-3.8-flash'});
+  const q=await question(store);await connector.start(q.id,q,{actor:{id:'owner',email:'owner@example.test'}});const run=await ended(connector,q.id);
+  assert.equal(run.status,'completed');assert.equal(run.usage.byAgent.researcher.calls,1);assert.equal(run.usage.byAgent.verifier.calls,1);
+  assert.ok(run.usage.total.costUsd>0);assert.equal(run.usage.total.energyWh,0.48);assert.equal(run.usage.pricing.inputPerMTok,0.75);
+  assert.equal(run.retrievals.length,1);assert.ok(run.retrievals[0].passages.length>=1);assert.ok(run.retrievals[0].passages.every(p=>p.excerpt.length<=280&&p.documentId));
+  for(let i=0;i<200&&!appended.length;i++)await new Promise(resolve=>setTimeout(resolve,5));
+  assert.equal(appended.length,1);assert.equal(appended[0].id,run.id);
+});
+test('Un rôle sans droit d’appel au modèle est refusé (planificateur dans un chat)',async t=>{
+  const runner=async(c,job,{onModel})=>{await onModel({operation:'generate',agent:'planner',system:'s',schema:{}});return {claims:[]};};
+  const {store,connector}=await fixture(t,runner,{modelRequest:async()=>{throw new Error('must not call');}});
+  const q=await question(store);await connector.start(q.id,q);const run=await ended(connector,q.id);assert.equal(run.error.code,'INVALID_OUTPUT');assert.equal(run.usage.total.calls,0);
 });

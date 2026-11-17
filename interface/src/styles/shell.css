@@ -792,6 +792,7 @@ button.backend-chip:hover {
 }
 
 .backend-chip.state-ready .backend-dot { background: var(--ok); }
+.backend-chip.state-simulated .backend-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--warn); }
 .backend-chip.state-checking .backend-dot { background: var(--warn); animation: nav-pulse 1.2s ease-in-out infinite; }
 .backend-chip.state-missing .backend-dot,
 .backend-chip.state-unavailable .backend-dot { background: #A34630; }

@@ -21,7 +21,7 @@ export async function createAppStore({projectRoot,storageDirectory,backendState=
   }
   const documents=[...grouped.values()].sort((a,b)=>a.company.localeCompare(b.company)||b.year.localeCompare(a.year)||a.name.localeCompare(b.name));
   const companies=[...new Set(documents.map(doc=>doc.company))];
-  const prepareRag=createRagPreparation(documents);
+  const prepareRag=createRagPreparation(documents),documentCache=new Map();
   const validateDocuments=ids=>{if(!Array.isArray(ids)||ids.length>RAG_POLICY.maxDocuments||ids.some(id=>typeof id!=='string'||!documents.some(doc=>doc.id===id)))fail('Choisissez au plus 8 documents du corpus.');return [...new Set(ids)];};
   await fs.mkdir(storageDirectory,{recursive:true});const file=path.join(storageDirectory,'conversations.json');
   let state={version:1,threads:[],migratedLegacy:false};
@@ -48,11 +48,19 @@ export async function createAppStore({projectRoot,storageDirectory,backendState=
   return {
     overview(){return {documents:documents.map(docSummary),companies,threads:state.threads.map(summary).sort((a,b)=>Number(b.pinned)-Number(a.pinned)||String(b.updatedAt).localeCompare(a.updatedAt)),backend:{...backendState(),memoryMode:'local_rules',ragPreparationAvailable:true},memoryCount:state.threads.reduce((count,thread)=>count+thread.memory.length,0)};},
     document(id){return documents.find(doc=>doc.id===id);},
+    // Réponse JSON du texte extrait, sérialisée une seule fois (corpus local de quelques Mo, en lecture seule).
+    async documentPayload(id){
+      const doc=documents.find(item=>item.id===id);if(!doc)return null;
+      let cached=documentCache.get(id);
+      if(!cached){const content=doc.text?await fs.readFile(doc.text,'utf8'):'';const body=Buffer.from(JSON.stringify({id:doc.id,name:doc.name,company:doc.company,hasPdf:Boolean(doc.pdf),hasText:Boolean(doc.text),content}));cached={body,etag:'"'+createHash('sha256').update(body).digest('hex').slice(0,32)+'"'};documentCache.set(id,cached);}
+      return cached;
+    },
+    warm(){return prepareRag.warm();},
     getThread(id){return serialize(requireThread(id));},
     documentScope(id){const thread=requireThread(id);return thread.documentIds?.length?[...thread.documentIds]:documents.map(doc=>doc.id);},
     async setRun(id,run){const thread=requireThread(id);thread.lastRun=JSON.parse(JSON.stringify(run));await persist();return serialize(thread);},
     async recoverRuns(){let changed=false;for(const thread of state.threads){if(thread.lastRun?.status==='running'){thread.lastRun.status='interrupted';thread.lastRun.finishedAt=new Date().toISOString();thread.lastRun.error={code:'INTERRUPTED',message:'Le serveur a été redémarré. Relancez explicitement cette analyse.'};for(const task of thread.lastRun.tasks||[])if(task.status==='running')task.status='interrupted';changed=true;}}if(changed)await persist();},
-    async addAssistantMessage(id,{content,citations,runId,sourceMessageId}){const thread=requireThread(id);if(thread.messages.some(message=>message.runId===runId))return serialize(thread);if(!thread.messages.some(message=>message.id===sourceMessageId&&message.role==='user'))fail('Question source introuvable.',404);if(typeof content!=='string'||!content.trim()||content.length>24000||!Array.isArray(citations)||citations.some(c=>!documents.some(doc=>doc.id===c.documentId)))fail('Réponse documentaire invalide.');thread.messages.push({id:randomUUID(),role:'assistant',content,citations,citationsVerified:true,runId,sourceMessageId,createdAt:new Date().toISOString(),status:'completed'});thread.updatedAt=new Date().toISOString();await persist();return serialize(thread);},
+    async addAssistantMessage(id,{content,citations,runId,sourceMessageId,simulated=false}){const thread=requireThread(id);if(thread.messages.some(message=>message.runId===runId))return serialize(thread);if(!thread.messages.some(message=>message.id===sourceMessageId&&message.role==='user'))fail('Question source introuvable.',404);if(typeof content!=='string'||!content.trim()||content.length>24000||!Array.isArray(citations)||citations.some(c=>!documents.some(doc=>doc.id===c.documentId)))fail('Réponse documentaire invalide.');thread.messages.push({id:randomUUID(),role:'assistant',content,citations,citationsVerified:true,runId,sourceMessageId,createdAt:new Date().toISOString(),status:'completed',...(simulated?{simulated:true}:{})});thread.updatedAt=new Date().toISOString();await persist();return serialize(thread);},
     context(id){const thread=requireThread(id);return boundedContext(thread,linkedNotes(thread));},
     plan(id){return buildAgentPlan(requireThread(id));},
     async prepareRag(id,question){const thread=requireThread(id);return prepareRag({question,documentIds:thread.documentIds||[],threadId:id,memory:boundedContext(thread,linkedNotes(thread)).memory});},

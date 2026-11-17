@@ -4,12 +4,12 @@ import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 import {runPython} from '../server/python-bridge.mjs';
 const projectRoot=fileURLToPath(new URL('../../',import.meta.url));
-const config={projectRoot,python:process.env.FOLIO_TEST_PYTHON||'python',apiKey:'OFFLINE_TEST_ONLY',model:'offline',timeoutMs:15000};
+const config={projectRoot,python:process.env.FOLIO_TEST_PYTHON||'python',apiKey:'OFFLINE_TEST_ONLY',model:'offline',timeoutMs:60000};
 const passage={id:'offline-p1',documentId:'offline-doc',text:'Annual revenue was $100 million in 2024.',year:'2024'};
 for(const mode of ['chat','thematic']){
   const events=[];let retrievals=0,models=0;
   const result=await runPython(config,{mode,question:'Quels revenus annuels en 2024 ?',context:{recentMessages:[]}},{onEvent:event=>events.push(event),onRetrieve:async request=>{assert.equal(request.tool,'retrieve_passages');retrievals++;return {passages:[passage]};},onModel:async request=>{
-    models++;const fields=request.schema?.properties||{};
+    models++;assert.ok(['planner','researcher','verifier','writer'].includes(request.agent));const fields=request.schema?.properties||{};
     if(fields.axes)return {axes:['Revenus annuels','Évolution','Périmètre publié']};
     if(fields.approvedIndices)return {approvedIndices:[0]};
     if(fields.selectedIndices)return {selectedIndices:[0]};

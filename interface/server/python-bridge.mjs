@@ -5,10 +5,26 @@ messages.AI_DISABLED='Les appels au modèle sont désactivés pour cette session
 messages.MODEL_NOT_FOUND='Le modèle IA configuré n’est pas accessible avec cette clé. Vérifiez le modèle choisi.';
 messages.MODEL_REQUEST='Le service IA a refusé les paramètres de la requête.';
 export class BackendError extends Error{constructor(code){super(messages[code]||messages.AGENT_FAILURE);this.code=code;}}
+
+// Le worker ne reçoit que les variables nécessaires à Python, jamais tout l'environnement du serveur.
+const INHERITED=['PATH','PATHEXT','SYSTEMROOT','SystemRoot','WINDIR','COMSPEC','TEMP','TMP','TMPDIR','HOME','USERPROFILE','APPDATA','LOCALAPPDATA','PROGRAMDATA','LANG','LC_ALL','SSL_CERT_FILE','SSL_CERT_DIR','REQUESTS_CA_BUNDLE','PYTHONPATH','PYTHONHOME','VIRTUAL_ENV','PYTHONDONTWRITEBYTECODE','HTTPS_PROXY','HTTP_PROXY','NO_PROXY'];
+export function workerEnvironment(config,{bridgeModel=false,source=process.env}={}){
+  const env={};for(const name of INHERITED)if(typeof source[name]==='string')env[name]=source[name];
+  Object.assign(env,{PYTHONIOENCODING:'utf-8',PYTHONUTF8:'1',FOLIO_GEMINI_MODEL:config.model||'',FOLIO_MODEL_BRIDGE:bridgeModel?'1':'0',LANGCHAIN_TRACING_V2:'false',LANGSMITH_TRACING:'false'});
+  if(!bridgeModel&&config.apiKey)env.GOOGLE_API_KEY=config.apiKey;
+  const tracing=config.tracing;
+  if(tracing?.enabled&&tracing.apiKey){
+    // Le SDK lit LANGCHAIN_TRACING_V2 avant LANGSMITH_TRACING : les deux doivent être cohérents.
+    Object.assign(env,{LANGSMITH_TRACING:'true',LANGCHAIN_TRACING_V2:'true',LANGSMITH_API_KEY:tracing.apiKey,LANGSMITH_PROJECT:tracing.project||'folio-dev',LANGSMITH_HIDE_INPUTS:'true',LANGSMITH_HIDE_OUTPUTS:'true',FOLIO_TRACING:'on'});
+    if(tracing.endpoint)env.LANGSMITH_ENDPOINT=tracing.endpoint;
+  }
+  return env;
+}
+
 export function runPython(config,job,{onEvent=()=>{},onRetrieve,onModel,signal}={}){
-  if(!config.apiKey)return Promise.reject(new BackendError('MISSING_KEY'));
+  if(!config.apiKey&&!config.simulated)return Promise.reject(new BackendError('MISSING_KEY'));
   return new Promise((resolve,reject)=>{
-    const child=spawn(config.python,['-u','-m','scripts.folio_worker'],{cwd:config.projectRoot,env:{...process.env,GOOGLE_API_KEY:config.apiKey,FOLIO_GEMINI_MODEL:config.model,PYTHONIOENCODING:'utf-8',LANGCHAIN_TRACING_V2:'false',LANGSMITH_TRACING:'false',FOLIO_MODEL_BRIDGE:onModel?'1':'0'},stdio:['pipe','pipe','pipe'],windowsHide:true});
+    const child=spawn(config.python,['-u','-m','scripts.folio_worker'],{cwd:config.projectRoot,env:workerEnvironment(config,{bridgeModel:Boolean(onModel)}),stdio:['pipe','pipe','pipe'],windowsHide:true});
     let settled=false,result,bytes=0,toolChain=Promise.resolve();const lines=createInterface({input:child.stdout});
     const timer=setTimeout(()=>finish(new BackendError('TIMEOUT')),job.mode==='probe'?45000:config.timeoutMs);timer.unref?.();
     const abort=()=>finish(new BackendError('CANCELLED'));
@@ -17,7 +33,7 @@ export function runPython(config,job,{onEvent=()=>{},onRetrieve,onModel,signal}=
     lines.on('line',line=>{bytes+=Buffer.byteLength(line);if(bytes>1_000_000)return finish(new BackendError('INVALID_OUTPUT'));let packet;try{packet=JSON.parse(line);}catch{return finish(new BackendError('INVALID_OUTPUT'));}
       if(packet.type==='event'){try{onEvent({agent:packet.agent,status:packet.status,tool:packet.tool||null});}catch{finish(new BackendError('INVALID_OUTPUT'));}}
       else if(packet.type==='retrieve'){toolChain=toolChain.then(async()=>{if(settled||!onRetrieve)throw new BackendError('INVALID_OUTPUT');const data=await onRetrieve(packet);if(!settled)child.stdin.write(JSON.stringify({id:packet.id,packet:data})+'\n');}).catch(error=>finish(error instanceof BackendError?error:new BackendError('AGENT_FAILURE')));}
-      else if(packet.type==='model'){toolChain=toolChain.then(async()=>{if(settled||!onModel||typeof packet.id!=='string')throw new BackendError('INVALID_OUTPUT');const data=await onModel(packet);if(!settled)child.stdin.write(JSON.stringify({id:packet.id,result:data})+'\n');}).catch(error=>finish(error instanceof BackendError?error:new BackendError('AGENT_FAILURE')));}
+      else if(packet.type==='model'){toolChain=toolChain.then(async()=>{if(settled||!onModel||typeof packet.id!=='string')throw new BackendError('INVALID_OUTPUT');let usage=null;const data=await onModel(packet,{reportUsage:value=>{usage=value;}});if(!settled)child.stdin.write(JSON.stringify({id:packet.id,result:data,...(usage?{usage}:{})})+'\n');}).catch(error=>finish(error instanceof BackendError?error:new BackendError('AGENT_FAILURE')));}
       else if(packet.type==='result')result=packet.result;
       else if(packet.type==='error'){const error=new BackendError(packet.code);if(typeof packet.diagnostic==='string'&&/^[A-Za-z0-9_]{1,60}$/.test(packet.diagnostic))error.diagnostic=packet.diagnostic;finish(error);}
     });

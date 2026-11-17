@@ -77,6 +77,7 @@ export default function ChatPanel({thread, backend = {connected: false}, sending
   }
   const composerHint = running ? 'Une analyse est en cours : vous pouvez préparer votre prochaine question, l’envoi sera possible à la fin.'
     : sending ? 'Enregistrement de votre message et préparation de la recherche…'
+    : state === 'simulated' ? 'Mode simulé : la réponse sera un extrait littéral étiqueté, sans appel au modèle.'
     : state !== 'ready' && state !== 'checking' ? 'Votre message sera enregistré ; la réponse nécessite le modèle IA.'
     : null;
 

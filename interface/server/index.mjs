@@ -7,6 +7,7 @@ import {createAuthService} from './auth-service.mjs';
 import {parseEnv} from 'node:util';
 import {loadBackendConfig} from './backend-config.mjs';
 import {createAIConnector} from './ai-connector.mjs';
+import {createMetricsLog,createLatencyRecorder,routeKey,aggregateRuns,priceFor,FOOTPRINT,PRICING} from './run-metrics.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const development=process.argv.includes('--dev');
 const projectRoot=path.resolve(root,'..'),storageDirectory=process.env.FOLIO_DATA_DIR||path.join(root,'.runtime');
@@ -15,16 +16,29 @@ const store=await createAppStore({projectRoot,storageDirectory,backendState:()=>
 const config=await loadBackendConfig({projectRoot,storageDirectory});
 let environmentValues={};try{environmentValues=parseEnv(await fs.readFile(config.environmentFile,'utf8'));}catch(error){if(error.code!=='ENOENT')throw new Error('Configuration de connexion illisible.');}
 const auth=await createAuthService({storageDirectory,values:{...environmentValues,...process.env}});
-connector=await createAIConnector({store,config});
+const metrics=await createMetricsLog({storageDirectory}),latency=createLatencyRecorder();
+connector=await createAIConnector({store,config,metrics});
 void connector.probe();
+// En conteneur, le serveur écoute sur le réseau interne ; les hôtes admis restent explicites.
+const allowedHosts=new Set(['127.0.0.1','localhost','[::1]',...(process.env.FOLIO_ALLOWED_HOSTS||'').split(',').map(host=>host.trim().toLowerCase()).filter(host=>/^[a-z0-9.-]{1,253}$/.test(host))]);
+function metricsReport(){
+  const records=metrics.records();
+  return {generatedAt:new Date().toISOString(),runs:aggregateRuns(records),
+    recent:records.slice(-25).reverse().map(({runId,kind,status,errorCode,startedAt,durationMs,tasks,simulated,usage})=>({runId,kind,status,errorCode,startedAt,durationMs,tasks,simulated,total:usage?.total||null})),
+    http:latency.summary(),pricing:{...priceFor(config.model,new Date(),config.priceOverride),checkedAt:PRICING.checkedAt},footprint:FOOTPRINT,
+    provider:{simulated:Boolean(config.simulated),model:config.model},
+    method:{percentiles:'nearest_rank',httpWindow:'5000 dernières requêtes depuis le démarrage',runs:'exécutions terminées enregistrées dans .runtime/metrics/runs.jsonl'}};
+}
 const json=(response,status,data)=>{response.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});response.end(JSON.stringify(data));};
 async function body(request){let size=0;const chunks=[];for await(const chunk of request){size+=chunk.length;if(size>65536){const error=new Error('La demande est trop volumineuse.');error.status=413;throw error;}chunks.push(chunk);}let data;try{data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{const error=new Error('Données JSON invalides.');error.status=400;throw error;}if(!data||Array.isArray(data)||typeof data!=='object'){const error=new Error('Un objet JSON est requis.');error.status=400;throw error;}return data;}
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.woff2':'font/woff2'};
 let vite;
 const server=createServer(async(request,response)=>{
+  const started=performance.now();
   try{
     const url=new URL(request.url,`http://${request.headers.host}`);
-    if(!['127.0.0.1','localhost','[::1]'].includes(url.hostname))return json(response,403,{error:'Hôte non autorisé.'});
+    if(url.pathname.startsWith('/api/'))response.on('finish',()=>latency.record(routeKey(request.method,url.pathname),performance.now()-started,response.statusCode));
+    if(!allowedHosts.has(url.hostname))return json(response,403,{error:'Hôte non autorisé.'});
     if(url.pathname.startsWith('/api/')){
       const oauthCallback=request.method==='GET'&&url.pathname==='/api/auth/callback';
       if(!oauthCallback&&(request.headers.origin&&request.headers.origin!==url.origin||request.headers['sec-fetch-site']==='cross-site'))return json(response,403,{error:'Origine non autorisée.'});
@@ -42,6 +56,7 @@ const server=createServer(async(request,response)=>{
       if(request.method==='GET'&&url.pathname==='/api/backend/status')return json(response,200,connector.status());
       if(request.method==='POST'&&url.pathname==='/api/backend/probe')return json(response,200,await connector.probe());
       if(request.method==='GET'&&url.pathname==='/api/workspace')return json(response,200,store.overview());
+      if(request.method==='GET'&&url.pathname==='/api/metrics')return json(response,200,metricsReport());
       const documentMatch=url.pathname.match(/^\/api\/documents\/([a-f0-9]{18})(?:\/(pdf))?$/);
       if(documentMatch&&request.method==='GET'){
         const doc=store.document(documentMatch[1]);if(!doc)return json(response,404,{error:'Document introuvable.'});
@@ -49,12 +64,15 @@ const server=createServer(async(request,response)=>{
           if(!doc.pdf)return json(response,404,{error:'Le PDF original n’est pas disponible.'});
           const content=await fs.readFile(doc.pdf);response.writeHead(200,{'Content-Type':'application/pdf','Content-Length':content.length,'Content-Disposition':`${url.searchParams.has('download')?'attachment':'inline'}; filename="folio-${doc.id}.pdf"`,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'});return response.end(content);
         }
-        const content=doc.text?await fs.readFile(doc.text,'utf8'):'';
         if(url.searchParams.get('download')==='1'){
           if(!doc.text)return json(response,404,{error:'Texte extrait indisponible.'});
+          const content=await fs.readFile(doc.text,'utf8');
           response.writeHead(200,{'Content-Type':'text/markdown; charset=utf-8','Content-Disposition':`attachment; filename="folio-${doc.id}.md"`,'X-Content-Type-Options':'nosniff'});return response.end(content);
         }
-        return json(response,200,{id:doc.id,name:doc.name,company:doc.company,hasPdf:Boolean(doc.pdf),hasText:Boolean(doc.text),content});
+        const payload=await store.documentPayload(doc.id);
+        const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, max-age=300','ETag':payload.etag,'X-Content-Type-Options':'nosniff'};
+        if(request.headers['if-none-match']===payload.etag){response.writeHead(304,headers);return response.end();}
+        response.writeHead(200,{...headers,'Content-Length':payload.body.length});return response.end(payload.body);
       }
       if(request.method==='POST'&&url.pathname==='/api/threads')return json(response,201,await store.createThread(await body(request)));
       const match=url.pathname.match(/^\/api\/threads\/([a-zA-Z0-9-]+)(?:\/(messages|memory|context|plan|rag-context|run)(?:\/([a-zA-Z0-9-]+))?)?$/);
@@ -63,7 +81,7 @@ const server=createServer(async(request,response)=>{
         if(!action&&request.method==='GET')return json(response,200,store.getThread(id));
         if(!action&&request.method==='PATCH')return json(response,200,await store.updateThread(id,await body(request)));
         if(!action&&request.method==='DELETE'){await connector.cancel(id);return json(response,200,await store.deleteThread(id));}
-        if(action==='run'&&!itemId&&request.method==='POST')return json(response,202,await connector.start(id,await body(request)));
+        if(action==='run'&&!itemId&&request.method==='POST')return json(response,202,await connector.start(id,await body(request),{actor:auth.session(request).user}));
         if(action==='run'&&!itemId&&request.method==='GET')return json(response,200,connector.latest(id));
         if(action==='run'&&!itemId&&request.method==='DELETE')return json(response,200,await connector.cancel(id));
         if(action==='messages'&&!itemId&&request.method==='POST')return json(response,201,await store.addMessage(id,(await body(request)).content));
@@ -89,7 +107,8 @@ const server=createServer(async(request,response)=>{
 if(development){const {createServer:createViteServer}=await import('vite');vite=await createViteServer({root,configFile:path.join(root,'vite.config.js'),server:{middlewareMode:true,hmr:{server}},appType:'spa'});}
 const port=Number(process.env.PORT||5173);
 server.on('error',error=>{console.error(error.code==='EADDRINUSE'?`Le port ${port} est déjà utilisé. Ouvrez http://127.0.0.1:${port} ou choisissez PORT.`:error.message);process.exitCode=1;});
-server.listen(port,'127.0.0.1',()=>console.log(`\n  Folio — http://127.0.0.1:${server.address().port}\n  Bibliothèque · Conversations · Résumés thématiques\n`));
+const host=process.env.FOLIO_HOST||'127.0.0.1';
+server.listen(port,host,()=>{console.log(`\n  Folio — http://${host==='0.0.0.0'?'127.0.0.1':host}:${server.address().port}\n  Bibliothèque · Conversations · Résumés thématiques\n`);store.warm().catch(()=>{});});
 let closing=false;
-async function close(){if(closing)return;closing=true;await connector.close();await store.close();await auth.close();await vite?.close();server.close(()=>process.exit(0));server.closeIdleConnections();}
+async function close(){if(closing)return;closing=true;await connector.close();await metrics.close();await store.close();await auth.close();await vite?.close();server.close(()=>process.exit(0));server.closeIdleConnections();}
 process.on('SIGINT',close);process.on('SIGTERM',close);

@@ -86,15 +86,17 @@ export function formatDuration(ms) {
 
 // État du modèle IA, tel que renvoyé par /api/workspace (backend).
 export function backendState(backend = {}) {
+  if (backend.connected && backend.simulated) return 'simulated';
   if (backend.connected) return 'ready';
   if (backend.state === 'checking') return 'checking';
   if (backend.state === 'disabled') return 'disabled';
   if (backend.state === 'missing_configuration' || backend.configured === false) return 'missing';
   return 'unavailable';
 }
-export const backendShortLabels = {ready: 'Modèle IA prêt', checking: 'Vérification…', disabled: 'IA désactivée', missing: 'Clé IA absente', unavailable: 'Modèle indisponible'};
+export const backendShortLabels = {ready: 'Modèle IA prêt', simulated: 'Modèle simulé', checking: 'Vérification…', disabled: 'IA désactivée', missing: 'Clé IA absente', unavailable: 'Modèle indisponible'};
 export function backendSentence(backend = {}) {
   switch (backendState(backend)) {
+    case 'simulated': return 'Mode simulé : les réponses sont des extraits littéraux étiquetés « [Simulé] », sans appel à un modèle ni coût. Ce mode sert aux tests de charge et aux démonstrations hors ligne.';
     case 'ready': return `Le modèle IA est prêt${backend.model ? ` (${backend.model})` : ''} : vos questions et vos résumés peuvent être lancés.`;
     case 'checking': return 'Vérification de la disponibilité du modèle IA…';
     case 'disabled': return 'Les appels au modèle IA sont désactivés pour cette session. Bibliothèque, historique et mémoire restent disponibles.';

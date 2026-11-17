@@ -40,6 +40,8 @@ export async function buildIndex(documents) {
       }
       push();
     }
+    // Rend la main entre deux rapports : la construction ne bloque pas les autres requêtes.
+    await new Promise(resolve=>setImmediate(resolve));
   }
   return {chunks,frequencies,averageLength:chunks.reduce((sum,chunk)=>sum+chunk.length,0)/Math.max(chunks.length,1)};
 }
