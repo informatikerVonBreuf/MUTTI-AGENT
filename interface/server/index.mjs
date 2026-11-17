@@ -9,17 +9,25 @@ import {loadBackendConfig} from './backend-config.mjs';
 import {createAIConnector,userReference} from './ai-connector.mjs';
 import {createMetricsLog,createLatencyRecorder,routeKey,aggregateRuns,priceFor,FOOTPRINT,PRICING} from './run-metrics.mjs';
 import {createAuditLog} from './audit-log.mjs';
-import {createCsrfGuard,createRateLimiter,AI_LIMITS,validateBody,SCHEMAS,SECURITY_HEADERS,cookieValue} from './request-guards.mjs';
+import {createCsrfGuard,createRateLimiter,AI_LIMITS,IP_LIMITS,validateBody,SCHEMAS,SECURITY_HEADERS,cookieValue} from './request-guards.mjs';
 import {CLASSIFIER} from './injection-screen.mjs';
+import {createHumanCheck} from './human-check.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const development=process.argv.includes('--dev');
 const projectRoot=path.resolve(root,'..'),storageDirectory=process.env.FOLIO_DATA_DIR||path.join(root,'.runtime');
 const config=await loadBackendConfig({projectRoot,storageDirectory});
 let environmentValues={};try{environmentValues=parseEnv(await fs.readFile(config.environmentFile,'utf8'));}catch(error){if(error.code!=='ENOENT')throw new Error('Configuration de connexion illisible.');}
 const settings={...environmentValues,...process.env};
+// Derrière nginx (FOLIO_TRUST_PROXY=1), l'adresse du client vient de X-Real-IP posé par le proxy ; sinon de la connexion.
+const trustProxy=settings.FOLIO_TRUST_PROXY==='1';
+const ipOf=request=>{if(trustProxy){const real=String(request.headers['x-real-ip']||'').trim();if(/^[0-9a-f.:]{3,45}$/i.test(real))return real;}return request.socket?.remoteAddress||'local';};
 let connector;
-const store=await createAppStore({projectRoot,storageDirectory,backendState:()=>connector?.status()||{connected:false,citationsEnabled:false},documentAcl:parseDocumentAcl(settings.FOLIO_DOCUMENT_ACL)});
-const auth=await createAuthService({storageDirectory,values:settings});
+const auth=await createAuthService({storageDirectory,values:settings,ipOf});
+// ACL documentaire : entreprises autorisées d'un sous-compte, sinon règle statique FOLIO_DOCUMENT_ACL, sinon tout le corpus.
+const staticAcl=parseDocumentAcl(settings.FOLIO_DOCUMENT_ACL);
+const documentAcl=actor=>actor?.role==='member'?(auth.companiesFor(actor.id)||[]):staticAcl?(staticAcl[actor?.id]??staticAcl[actor?.email]??staticAcl['*']??null):null;
+const store=await createAppStore({projectRoot,storageDirectory,backendState:()=>connector?.status()||{connected:false,citationsEnabled:false},documentAcl});
+const human=await createHumanCheck({storageDirectory,enabled:settings.FOLIO_HUMAN_CHECK!=='off'});
 const metrics=await createMetricsLog({storageDirectory}),latency=createLatencyRecorder();
 const audit=await createAuditLog({storageDirectory});
 if(!audit.startupCheck.valid)console.error(`Journal d’audit rompu à la ligne ${audit.startupCheck.brokenAt} : vérifiez scripts/verify-audit.mjs.`);
@@ -43,9 +51,20 @@ const sessionToken=cookie=>String(cookie||'').match(/^folio_session=([^;]*)/)?.[
 const audited=(action,fields)=>{try{audit.append(action,fields);}catch{}};
 // Connexion, création, récupération : chaque issue est auditée (sans adresse ni mot de passe).
 async function authAction(kind,response,action){
-  try{const result=await action();const token=sessionToken(result.cookie);response.setHeader('Set-Cookie',token?[result.cookie,csrf.cookie(token)]:[result.cookie]);audited('auth',{actor:userReference(result.session?.user),decision:'allowed',reason:kind});return result;}
-  catch(error){audited('auth',{actor:'anonymous',decision:'blocked',reason:(kind+':'+(error.code||'error')).slice(0,120)});throw error;}
+  try{
+    const result=await action();
+    if(result.mfaRequired){audited('auth',{actor:'anonymous',decision:'allowed',reason:kind+':mfa_challenge'});return result;}
+    const token=sessionToken(result.cookie);response.setHeader('Set-Cookie',token?[result.cookie,csrf.cookie(token)]:[result.cookie]);audited('auth',{actor:userReference(result.session?.user),decision:'allowed',reason:kind});return result;
+  }catch(error){audited('auth',{actor:'anonymous',decision:'blocked',reason:(kind+':'+(error.code||'error')).slice(0,120)});throw error;}
 }
+// Vérification anti-robot avant tout calcul coûteux (scrypt) : défi signé, preuve de travail, champ piège.
+function requireHuman(fields,kind){
+  const problem=human.verify(fields.human);
+  if(problem){audited('security',{actor:'anonymous',decision:'blocked',reason:'human_check:'+kind+':'+problem});throw Object.assign(new Error('La vérification « je ne suis pas un robot » a échoué ou expiré. Recommencez-la.'),{status:400,code:'HUMAN_CHECK_FAILED'});}
+  const {human:ignored,...rest}=fields;return rest;
+}
+const tooMany=(response,decision,message='Trop de demandes rapprochées.')=>{response.setHeader('Retry-After',String(decision.retryAfter));return json(response,429,{code:'RATE_LIMITED',error:`${message} Réessayez dans ${decision.retryAfter} s.`});};
+const accountAudit=(actor,reason)=>audited('auth',{actor:userReference(actor),decision:'allowed',reason});
 let vite;
 const server=createServer(async(request,response)=>{
   const started=performance.now();
@@ -56,12 +75,20 @@ const server=createServer(async(request,response)=>{
     if(url.pathname.startsWith('/api/')){
       const oauthCallback=request.method==='GET'&&url.pathname==='/api/auth/callback';
       if(!oauthCallback&&(request.headers.origin&&request.headers.origin!==url.origin||request.headers['sec-fetch-site']==='cross-site'))return json(response,403,{error:'Origine non autorisée.'});
-      if(request.method==='GET'&&url.pathname==='/api/health')return json(response,200,{status:'ok',version:'sessions-v6',backendConnected:connector.status().connected});
-      if(request.method==='GET'&&url.pathname==='/api/auth/status')return json(response,200,auth.status());
+      // Déni de service : débit par adresse IP sur toute l'API (santé exceptée), plus strict pour les routes de connexion.
+      if(url.pathname!=='/api/health'){
+        const ip=ipOf(request),authRoute=url.pathname.startsWith('/api/auth/')&&(request.method==='POST'||url.pathname==='/api/auth/challenge');
+        const decision=rateLimit('ip '+ip,IP_LIMITS.api);if(!decision.allowed){request.resume();return tooMany(response,decision);}
+        if(authRoute){const strict=rateLimit('auth '+ip,IP_LIMITS.auth);if(!strict.allowed){request.resume();audited('security',{actor:'anonymous',decision:'blocked',reason:'rate_limited:auth'});return tooMany(response,strict,'Trop de tentatives de connexion.');}}
+      }
+      if(request.method==='GET'&&url.pathname==='/api/health')return json(response,200,{status:'ok',version:'sessions-v7',backendConnected:connector.status().connected});
+      if(request.method==='GET'&&url.pathname==='/api/auth/status')return json(response,200,{...auth.status(),humanCheck:human.enabled?'proof_of_work':'off'});
+      if(request.method==='GET'&&url.pathname==='/api/auth/challenge')return json(response,200,human.issue());
       if(request.method==='GET'&&url.pathname==='/api/auth/session'){const session=auth.session(request);if(session.authenticated)response.setHeader('Set-Cookie',csrf.cookie(cookieValue(request,'folio_session')));return json(response,200,session);}
-      if(request.method==='POST'&&url.pathname==='/api/auth/setup'){const fields=await body(request,SCHEMAS.setup);const result=await authAction('setup',response,()=>auth.setup(fields,request));return json(response,201,{accepted:true,recoveryCode:result.recoveryCode});}
-      if(request.method==='POST'&&url.pathname==='/api/auth/login'){const fields=await body(request,SCHEMAS.login);await authAction('login',response,()=>auth.login(fields,request));return json(response,200,{accepted:true});}
-      if(request.method==='POST'&&url.pathname==='/api/auth/reset'){const fields=await body(request,SCHEMAS.reset);const result=await authAction('reset',response,()=>auth.reset(fields,request));return json(response,200,{accepted:true,recoveryCode:result.recoveryCode});}
+      if(request.method==='POST'&&url.pathname==='/api/auth/setup'){const fields=requireHuman(await body(request,SCHEMAS.setup),'setup');const result=await authAction('setup',response,()=>auth.setup(fields,request));return json(response,201,{accepted:true,recoveryCode:result.recoveryCode});}
+      if(request.method==='POST'&&url.pathname==='/api/auth/login'){const fields=requireHuman(await body(request,SCHEMAS.login),'login');const result=await authAction('login',response,()=>auth.login(fields,request));return json(response,200,result.mfaRequired?{accepted:false,mfaRequired:true,challenge:result.challenge,expiresIn:result.expiresIn}:{accepted:true});}
+      if(request.method==='POST'&&url.pathname==='/api/auth/mfa'){const fields=await body(request,SCHEMAS.mfa);await authAction('mfa',response,()=>auth.verifyMfa(fields,request));return json(response,200,{accepted:true});}
+      if(request.method==='POST'&&url.pathname==='/api/auth/reset'){const fields=requireHuman(await body(request,SCHEMAS.reset),'reset');const result=await authAction('reset',response,()=>auth.reset(fields,request));return json(response,200,{accepted:true,recoveryCode:result.recoveryCode});}
       if(request.method==='POST'&&url.pathname==='/api/auth/logout'){
         request.resume();const session=auth.session(request);
         if(session.authenticated&&!csrf.valid(request)){response.setHeader('Set-Cookie',csrf.cookie(cookieValue(request,'folio_session')));return json(response,403,{code:'CSRF_INVALID',error:'Jeton de sécurité manquant ou périmé. Réessayez.'});}
@@ -78,6 +105,26 @@ const server=createServer(async(request,response)=>{
       // Limitation de débit des routes IA, par utilisateur.
       const limitKey=routeKey(request.method,url.pathname),limit=AI_LIMITS[limitKey];
       if(limit){const decision=rateLimit(actor.id+' '+limitKey,limit);if(!decision.allowed){request.resume();response.setHeader('Retry-After',String(decision.retryAfter));audited('security',{actor:userReference(actor),decision:'blocked',reason:'rate_limited:'+limitKey.replace(/[^A-Za-z0-9_.:-]/g,'_').slice(0,90)});return json(response,429,{code:'RATE_LIMITED',error:`Trop de demandes rapprochées. Réessayez dans ${decision.retryAfter} s.`});}}
+      // Mon compte : sessions, mot de passe, double authentification.
+      if(request.method==='GET'&&url.pathname==='/api/account')return json(response,200,auth.accountInfo(actor));
+      if(request.method==='GET'&&url.pathname==='/api/account/sessions')return json(response,200,{sessions:auth.listSessions(actor,request)});
+      if(request.method==='POST'&&url.pathname==='/api/account/sessions/revoke-others'){await body(request,SCHEMAS.empty);const result=await auth.revokeOtherSessions(actor,request);accountAudit(actor,'sessions_revoked');return json(response,200,result);}
+      if(request.method==='POST'&&url.pathname==='/api/account/password'){const result=await auth.changePassword(actor,await body(request,SCHEMAS.passwordChange),request);accountAudit(actor,'password_changed');return json(response,200,result);}
+      if(request.method==='POST'&&url.pathname==='/api/account/mfa/setup'){await body(request,SCHEMAS.empty);return json(response,200,auth.mfaSetup(actor));}
+      if(request.method==='POST'&&url.pathname==='/api/account/mfa/enable'){const result=await auth.mfaEnable(actor,await body(request,SCHEMAS.mfaConfirm),request);accountAudit(actor,'mfa_enabled');return json(response,200,result);}
+      if(request.method==='POST'&&url.pathname==='/api/account/mfa/disable'){const result=await auth.mfaDisable(actor,await body(request,SCHEMAS.mfaConfirm),request);accountAudit(actor,'mfa_disabled');return json(response,200,result);}
+      // Un sous-compte invité doit d'abord remplacer son code d'invitation par son propre mot de passe.
+      if(actor.mustChangePassword){request.resume();return json(response,403,{code:'PASSWORD_CHANGE_REQUIRED',error:'Choisissez votre mot de passe personnel pour accéder à l’atelier.'});}
+      // Sous-comptes : réservés au propriétaire.
+      const memberMatch=url.pathname.match(/^\/api\/accounts(?:\/([-a-f0-9]{36}))?$/);
+      if(memberMatch){
+        if(request.method==='GET'&&!memberMatch[1])return json(response,200,{members:auth.listMembers(actor)});
+        if(request.method==='POST'&&!memberMatch[1]){const result=await auth.createMember(actor,await body(request,SCHEMAS.memberCreate));accountAudit(actor,'member_created');return json(response,201,result);}
+        if(request.method==='PATCH'&&memberMatch[1]){const result=await auth.updateMember(actor,memberMatch[1],await body(request,SCHEMAS.memberUpdate));accountAudit(actor,'member_updated');return json(response,200,result);}
+        if(request.method==='DELETE'&&memberMatch[1]){request.resume();const result=await auth.deleteMember(actor,memberMatch[1]);accountAudit(actor,'member_deleted');return json(response,200,result);}
+      }
+      const ownerOnly=['/api/metrics','/api/audit/verify'].includes(url.pathname);
+      if(ownerOnly&&actor.role==='member'){request.resume();return json(response,403,{code:'FORBIDDEN',error:'Réservé au propriétaire de l’atelier.'});}
       if(request.method==='GET'&&url.pathname==='/api/backend/status')return json(response,200,connector.status());
       if(request.method==='POST'&&url.pathname==='/api/backend/probe'){request.resume();return json(response,200,await connector.probe());}
       if(request.method==='GET'&&url.pathname==='/api/workspace')return json(response,200,store.overview(actor));
@@ -128,7 +175,7 @@ const server=createServer(async(request,response)=>{
     }
     if(development)return vite.middlewares(request,response,()=>{response.writeHead(404);response.end('Introuvable');});
     if(!['GET','HEAD'].includes(request.method)){response.writeHead(405);return response.end();}
-    const dist=path.join(root,'dist'),relative=decodeURIComponent(url.pathname).replace(/^\/+/, '');
+    const dist=process.env.FOLIO_DIST_DIR?path.resolve(process.env.FOLIO_DIST_DIR):path.join(root,'dist'),relative=decodeURIComponent(url.pathname).replace(/^\/+/, '');
     let target=path.resolve(dist,relative||'index.html');
     if(target!==dist&&!target.startsWith(dist+path.sep)){response.writeHead(403);return response.end();}
     try{if(!(await fs.stat(target)).isFile())target=path.join(dist,'index.html');}catch{if(path.extname(relative)&&path.extname(relative)!=='.html'){response.writeHead(404);return response.end('Introuvable');}target=path.join(dist,'index.html');}
@@ -137,6 +184,9 @@ const server=createServer(async(request,response)=>{
   }catch(error){if(!response.headersSent)json(response,error.status||500,{...(error.status&&error.code?{code:error.code}:{}),error:error.status?error.message:'Une erreur est survenue côté serveur.'});else response.end();if(!error.status)console.error('Une opération du serveur a échoué.');}
 });
 if(development){const {createServer:createViteServer}=await import('vite');vite=await createViteServer({root,configFile:path.join(root,'vite.config.js'),server:{middlewareMode:true,hmr:{server}},appType:'spa'});}
+// Déni de service : connexions lentes coupées (en-têtes, corps), connexions simultanées bornées.
+server.headersTimeout=20000;server.requestTimeout=30000;server.keepAliveTimeout=5000;server.maxHeadersCount=60;
+server.maxConnections=Number(settings.FOLIO_MAX_CONNECTIONS)||256;
 const port=Number(process.env.PORT||5173);
 server.on('error',error=>{console.error(error.code==='EADDRINUSE'?`Le port ${port} est déjà utilisé. Ouvrez http://127.0.0.1:${port} ou choisissez PORT.`:error.message);process.exitCode=1;});
 const host=process.env.FOLIO_HOST||'127.0.0.1';

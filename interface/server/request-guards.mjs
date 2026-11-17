@@ -52,7 +52,10 @@ const rules={
   boolean:value=>typeof value==='boolean',
   ids:(value,{max=50,pattern=id})=>Array.isArray(value)&&value.length<=max&&value.every(item=>typeof item==='string'&&pattern.test(item)),
   enum:(value,{values})=>values.includes(value),
+  // Réponse à la vérification anti-robot : défi signé, nombre trouvé, champ piège.
+  human:value=>Boolean(value)&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).every(key=>['challenge','nonce','trap'].includes(key))&&typeof value.challenge==='string'&&value.challenge.length<=1024&&typeof value.nonce==='string'&&value.nonce.length<=12&&(value.trap===undefined||(typeof value.trap==='string'&&value.trap.length<=200)),
 };
+const human={type:'human',optional:true},company=/^(\*|[a-z0-9-]{1,40})$/;
 export const SCHEMAS={
   createThread:{kind:{type:'enum',values:['chat','thematic']},title:{type:'string',max:120,optional:true},theme:{type:'string',max:120,optional:true},sourceThreadIds:{type:'ids',optional:true},documentIds:{type:'ids',max:8,pattern:/^[a-f0-9]{18}$/,optional:true}},
   updateThread:{documentIds:{type:'ids',max:8,pattern:/^[a-f0-9]{18}$/,optional:true},title:{type:'string',max:120,optional:true},priority:{type:'enum',values:['normal','important','essential'],optional:true},pinned:{type:'boolean',optional:true},sourceThreadIds:{type:'ids',optional:true}},
@@ -61,10 +64,19 @@ export const SCHEMAS={
   ragContext:{question:{type:'string',min:1,max:4000}},
   memory:{text:{type:'string',min:1,max:1000},sourceMessageId:{type:'string',pattern:id,optional:true}},
   memoryEdit:{text:{type:'string',min:1,max:1000}},
-  login:{email:{type:'string',max:254},password:{type:'string',max:1024}},
-  setup:{email:{type:'string',max:254},password:{type:'string',max:1024}},
-  reset:{email:{type:'string',max:254},recoveryCode:{type:'string',max:200},newPassword:{type:'string',max:1024}},
+  login:{email:{type:'string',max:254},password:{type:'string',max:1024},human},
+  setup:{email:{type:'string',max:254},password:{type:'string',max:1024},human},
+  reset:{email:{type:'string',max:254},recoveryCode:{type:'string',max:200},newPassword:{type:'string',max:1024},human},
+  mfa:{challenge:{type:'string',max:80},code:{type:'string',max:10}},
+  passwordChange:{currentPassword:{type:'string',max:1024},newPassword:{type:'string',max:1024}},
+  mfaConfirm:{code:{type:'string',max:10},password:{type:'string',max:1024}},
+  empty:{},
+  memberCreate:{email:{type:'string',max:254},companies:{type:'ids',max:20,pattern:company}},
+  memberUpdate:{companies:{type:'ids',max:20,pattern:company,optional:true},disabled:{type:'boolean',optional:true},resetInvitation:{type:'boolean',optional:true}},
 };
+
+// Protection contre le déni de service applicatif : débit par adresse IP sur toute l'API, plus strict pour la connexion.
+export const IP_LIMITS={api:{capacity:300,perMinute:300},auth:{capacity:30,perMinute:10}};
 export function validateBody(data,schema){
   for(const key of Object.keys(data))if(!(key in schema))throw new BodyError('Champ non accepté : '+key.slice(0,40)+'.');
   for(const [key,rule] of Object.entries(schema)){

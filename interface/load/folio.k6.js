@@ -4,6 +4,8 @@
 // Le backend de test utilise le fournisseur simulé (aucun appel facturé) et un volume dédié :
 // le compte créé ici n'est jamais celui de l'atelier réel.
 import http from 'k6/http';
+import crypto from 'k6/crypto';
+import encoding from 'k6/encoding';
 import {check,sleep,fail} from 'k6';
 import {Trend,Counter} from 'k6/metrics';
 
@@ -39,9 +41,21 @@ export const options={
   summaryTrendStats:['avg','min','med','p(90)','p(95)','p(99)','max','count'],
 };
 
+// Vérification anti-robot : même preuve de travail que le navigateur (SHA-256, N bits à zéro), délai minimal respecté.
+function zeroBits(hex){let bits=0;for(const ch of hex){const v=parseInt(ch,16);if(v===0){bits+=4;continue;}return bits+Math.clz32(v)-28;}return bits;}
+function human(){
+  const res=http.get(BASE+'/api/auth/challenge',{headers:headers(),tags:{kind:'auth'}});
+  if(res.status!==200)fail('Défi anti-robot indisponible : '+res.status);
+  const {challenge,difficulty}=res.json(),started=Date.now();
+  const {salt}=JSON.parse(encoding.b64decode(challenge.split('.')[0],'rawurl','s'));
+  let nonce=0;while(zeroBits(crypto.sha256(salt+':'+nonce,'hex'))<difficulty)nonce++;
+  const wait=1000-(Date.now()-started);if(wait>0)sleep(wait/1000);
+  return {challenge,nonce:String(nonce)};
+}
+
 function login(){
   const jar=http.cookieJar();
-  const res=http.post(BASE+'/api/auth/login',JSON.stringify({email:EMAIL,password:PASSWORD}),{headers:headers(),tags:{kind:'auth'}});
+  const res=http.post(BASE+'/api/auth/login',JSON.stringify({email:EMAIL,password:PASSWORD,human:human()}),{headers:headers(),tags:{kind:'auth'}});
   if(res.status!==200)fail('Connexion refusée : '+res.status);
   return jar;
 }
@@ -49,7 +63,7 @@ function login(){
 export function setup(){
   const status=http.get(BASE+'/api/auth/status',{headers:headers(),tags:{kind:'auth'}}).json();
   if(status.setupRequired){
-    const res=http.post(BASE+'/api/auth/setup',JSON.stringify({email:EMAIL,password:PASSWORD}),{headers:headers(),tags:{kind:'auth'}});
+    const res=http.post(BASE+'/api/auth/setup',JSON.stringify({email:EMAIL,password:PASSWORD,human:human()}),{headers:headers(),tags:{kind:'auth'}});
     if(res.status!==201)fail('Création du compte de charge impossible : '+res.status);
   }else login();
   const workspace=http.get(BASE+'/api/workspace',{headers:headers(),tags:{kind:'api'}}).json();

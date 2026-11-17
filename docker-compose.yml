@@ -36,6 +36,7 @@ services:
       FOLIO_TRACING: ${FOLIO_TRACING:-off}
       FOLIO_LANGSMITH_PROJECT: ${FOLIO_LANGSMITH_PROJECT:-folio-dev}
       FOLIO_SECURE_COOKIES: ${FOLIO_SECURE_COOKIES:-0}
+      FOLIO_TRUST_PROXY: "1"
       QDRANT_URL: http://qdrant:6333
     secrets:
       - folio_env
