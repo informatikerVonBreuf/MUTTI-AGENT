@@ -2,6 +2,8 @@ import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
 const messages={MISSING_KEY:'La clé du modèle IA n’est pas configurée.',MODEL_AUTH:'La clé du modèle IA est refusée.',MODEL_QUOTA:'Le quota du modèle IA est atteint. Réessayez plus tard.',MODEL_UNAVAILABLE:'Le modèle IA est indisponible ou le réseau est inaccessible.',INVALID_OUTPUT:'La réponse du modèle ne respecte pas le contrat attendu.',NO_EVIDENCE:'Aucun passage suffisamment pertinent n’a été trouvé.',AGENT_FAILURE:'Le traitement des agents a échoué.',TIMEOUT:'Le délai maximal du traitement est atteint.',CANCELLED:'Le traitement a été arrêté.'};
 messages.AI_DISABLED='Les appels au modèle sont désactivés pour cette session.';
+messages.MODEL_NOT_FOUND='Le modèle IA configuré n’est pas accessible avec cette clé. Vérifiez le modèle choisi.';
+messages.MODEL_REQUEST='Le service IA a refusé les paramètres de la requête.';
 export class BackendError extends Error{constructor(code){super(messages[code]||messages.AGENT_FAILURE);this.code=code;}}
 export function runPython(config,job,{onEvent=()=>{},onRetrieve,onModel,signal}={}){
   if(!config.apiKey)return Promise.reject(new BackendError('MISSING_KEY'));

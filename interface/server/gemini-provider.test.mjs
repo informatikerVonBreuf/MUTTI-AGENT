@@ -11,7 +11,7 @@ test('Transport Gemini : destination fixe, secret en en-tête, JSON structuré, 
   }});assert.deepEqual(result,{claims:[]});
 });
 test('Les erreurs HTTP et réseau restent génériques et ne divulguent pas le contenu fournisseur',async()=>{
-  for(const [status,code] of [[403,'MODEL_AUTH'],[429,'MODEL_QUOTA'],[503,'MODEL_UNAVAILABLE']])await assert.rejects(callGemini(config,request,{fetcher:async()=>new Response(config.apiKey,{status})}),error=>error.code===code&&!error.message.includes(config.apiKey));
+  for(const [status,code] of [[400,'MODEL_REQUEST'],[403,'MODEL_AUTH'],[404,'MODEL_NOT_FOUND'],[429,'MODEL_QUOTA'],[503,'MODEL_UNAVAILABLE']])await assert.rejects(callGemini(config,request,{fetcher:async()=>new Response(config.apiKey,{status})}),error=>error.code===code&&!error.message.includes(config.apiKey));
   await assert.rejects(callGemini(config,request,{fetcher:async()=>{throw new Error(config.apiKey);}}),error=>error.code==='MODEL_UNAVAILABLE'&&!error.message.includes(config.apiKey));
 });
 test('JSON invalide et absence de clé sont refusés',async()=>{
@@ -20,4 +20,7 @@ test('JSON invalide et absence de clé sont refusés',async()=>{
 });
 test('L’annulation est propagée au transport',async()=>{
   const controller=new AbortController();controller.abort();await assert.rejects(callGemini(config,request,{signal:controller.signal,fetcher:async(url,options)=>{options.signal.throwIfAborted();}}),error=>error.code==='CANCELLED');
+});
+test('Gemini 3 emploie thinkingLevel et les modèles 2.5 conservent thinkingBudget',async()=>{
+  for(const model of ['gemini-3.8-flash','gemini-2.5-flash'])await callGemini({...config,model},request,{fetcher:async(url,options)=>{const generation=JSON.parse(options.body).generationConfig;if(model.startsWith('gemini-3')){assert.deepEqual(generation.thinkingConfig,{thinkingLevel:'low'});assert.equal(generation.maxOutputTokens,4096);}else assert.deepEqual(generation.thinkingConfig,{thinkingBudget:0});return new Response(JSON.stringify({candidates:[{content:{parts:[{text:'{"claims":[]}'}]}}]}));}});
 });

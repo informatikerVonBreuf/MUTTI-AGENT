@@ -2,6 +2,7 @@
 
 import os
 import hashlib
+from scripts.security_paths import contained_path, thread_directory
 from langchain_core.messages import ToolMessage
 
 from typing import Annotated
@@ -37,9 +38,7 @@ def _thread_folder(state: DeepAgentState) -> str:
     """Return the folder for this user/thread, create if missing."""
     user = state.get("user_id") or "default_user"
     thread = state.get("thread_id") or "default_thread"
-    folder = os.path.join(BASE_FILE_DIR, user, thread)
-    os.makedirs(folder, exist_ok=True)
-    return folder
+    return str(thread_directory(BASE_FILE_DIR, user, thread))
 
 def generate_hash(text: str, length: int = 6) -> str:
     """Generate a short hash from text for unique file naming."""
@@ -52,10 +51,9 @@ def _disk_path(state: DeepAgentState, file_path: str) -> str:
         agent_files/<user_id>/<thread_id>/<file_path>
     """
     folder = _thread_folder(state)
-    safe_path = file_path.lstrip("/\\")
-    full = os.path.join(folder, safe_path)
-    os.makedirs(os.path.dirname(full), exist_ok=True)
-    return full
+    full = contained_path(folder, file_path)
+    full.parent.mkdir(parents=True, exist_ok=True)
+    return str(full)
 
 # -------------------------
 # Tools
@@ -79,8 +77,7 @@ def ls(
     """
     folder = _thread_folder(state)
     if path:
-        # Join with the subdirectory path, removing leading slashes
-        folder = os.path.join(folder, path.lstrip("/\\"))
+        folder = str(contained_path(folder, path))
     if not os.path.exists(folder):
         return []
     return sorted(os.listdir(folder))
@@ -188,7 +185,7 @@ def cleanup_files(
 
     deleted = []
     for name in os.listdir(folder):
-        full = os.path.join(folder, name)
+        full = str(contained_path(folder, name))
         if os.path.isfile(full):
             try:
                 os.remove(full)

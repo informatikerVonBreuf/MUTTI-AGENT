@@ -6,7 +6,7 @@
 
 **Conversation** : question enregistrée → recherche automatique → affirmations appuyées sur les passages → contrôle des références et de la cohérence → réponse et citations enregistrées.
 
-**Résumé thématique** : planificateur → chercheur sur un à trois axes → vérificateur → assemblage du résumé. `scripts/folio_worker.py` exécute réellement ces quatre nœuds avec LangGraph. Le dernier assemble les affirmations admises sans ajouter de prose libre. Ce module reprend les rôles du projet dans une chaîne bornée ; il ne lance pas les outils génériques des anciens notebooks.
+**Résumé thématique** : planificateur → chercheur sur un à trois axes → vérificateur → assemblage du résumé. `scripts/folio_worker.py` exécute réellement ces quatre nœuds avec LangGraph. Le dernier sélectionne, par indices, un sous-ensemble des affirmations admises afin de retirer les répétitions. Le serveur assemble ces affirmations sans accepter de nouvelle prose factuelle. Ce module reprend les rôles du projet dans une chaîne bornée ; il ne lance pas les outils génériques des anciens notebooks.
 
 Le journal expose les étapes et leur état, jamais le raisonnement privé. Une interruption après redémarrage exige une relance explicite. Rejouer un message déjà terminé ne déclenche pas un nouvel appel.
 
@@ -16,11 +16,11 @@ Les textes Markdown déjà extraits sont indexés localement avec BM25. Entrepri
 
 **Qdrant n’est pas utilisé.** Le statut distingue sa joignabilité de son utilisation (`vector.used: false`). L’ancien serveur local n’était pas joignable lors du diagnostic. Les anciennes ressources Qdrant Cloud/AWS restent à retrouver.
 
-Une citation exige un identifiant connu, un extrait exactement présent et la bonne année du document. Un second appel modèle contrôle l’appui de l’affirmation par le texte, les périodes et unités. Ce contrôle peut se tromper ; `truthVerified` reste faux. Une page n’est indiquée que si l’extraction en fournit les séparateurs.
+Une citation exige un identifiant connu, un extrait exactement présent et la bonne année du document. Si le modèle a seulement modifié les espaces ou retours à la ligne, le worker retrouve la portion originale du document ; chiffres, mots, signes et ponctuation ne sont jamais réécrits. Le contrôle exact côté Node reste obligatoire après cette restitution. Un second appel modèle contrôle l’appui de l’affirmation par le texte, les périodes et unités. Ce contrôle peut se tromper ; `truthVerified` reste faux. Une page n’est indiquée que si l’extraction en fournit les séparateurs.
 
 ## Configuration privée
 
-Prérequis : Node **22.22+** et Python avec `langgraph`. Le serveur lit `.env` à la racine. Les noms de clé reconnus sont `GOOGLE_API_KEY`, `GEMINI_API_KEY` et l’ancien `GOOGLE_API`. Les variables du processus priment sur le fichier. Modèle par défaut : `gemini-2.5-flash`, réglable via `FOLIO_GEMINI_MODEL` après vérification de compatibilité.
+Prérequis : Node **22.22+** et Python avec `langgraph`. Le serveur lit `.env` à la racine. Les noms de clé reconnus sont `GOOGLE_API_KEY`, `GEMINI_API_KEY` et l’ancien `GOOGLE_API`. Les variables du processus priment sur le fichier. Modèle par défaut : `gemini-3.8-flash`, réglable via `FOLIO_GEMINI_MODEL` après vérification de compatibilité.
 
 Pour réutiliser un fichier privé sans recopier ses secrets, créer localement `interface/.runtime/backend-settings.json` :
 
@@ -39,7 +39,7 @@ Pour réutiliser un fichier privé sans recopier ses secrets, créer localement 
 
 Gemini reçoit la question, les passages, les notes admises et jusqu’à huit messages récents. L’utilisateur doit autoriser ce fournisseur pour ses données. Les historiques sont conservés localement ; leur contexte est néanmoins transmis lors d’une analyse. La journalisation LangSmith est désactivée dans le worker.
 
-Une seule analyse à la fois ; jusqu’à huit passages par recherche, 1 800 caractères chacun et 12 000 au total. Jusqu’à trois recherches pour un résumé, six appels modèle admis au maximum, 35 secondes par appel et 180 secondes par traitement. Les sorties sont bornées. Arrêter coupe le worker et les requêtes en cours ; un appel déjà accepté peut rester facturé.
+Une seule analyse à la fois ; jusqu’à huit passages par recherche, 1 800 caractères chacun et 12 000 au total. Jusqu’à trois recherches pour un résumé, six appels modèle admis au maximum, 35 secondes par appel et 180 secondes par traitement. Les sorties sont bornées. Gemini 3 utilise `thinkingLevel: low` et un plafond de 4 096 tokens de sortie, raisonnement compris ; l’adaptateur conserve `thinkingBudget: 0` pour une configuration explicite Gemini 2.5. Le contrôle de présence du modèle ne suffit pas à prouver qu’une génération sera acceptée : les erreurs 404 et paramètres refusés sont distinguées, et un échec du fournisseur met son statut à jour. Arrêter coupe le worker et les requêtes en cours ; un appel déjà accepté peut rester facturé.
 
 Passages et mémoires sont traités comme données non fiables. Des règles isolent certaines instructions suspectes ; elles peuvent être contournées. Permissions, budgets et références sont contrôlés côté serveur. Ces défenses ne garantissent pas l’immunité aux injections.
 
@@ -65,6 +65,29 @@ node scripts/check-agent-bridge.mjs
 C:/Python314/python.exe -m unittest scripts.test_folio_worker scripts.test_security_boundaries -v
 ```
 
-Ces tests utilisent un modèle simulé, sans appels facturés. Le pont lance réellement Python/LangGraph. Le rendu React statique ne remplace pas un test navigateur ou utilisateur. Un essai réel du fournisseur et sa latence doivent être validés séparément.
+Ces tests utilisent un modèle simulé, sans appels facturés. Le pont lance réellement Python/LangGraph. Le rendu React statique ne remplace pas un test navigateur ou utilisateur. Les essais réels autorisés ont maintenant été effectués séparément ; leurs résultats sont ci-dessous.
 
-L’authentification demeure non raccordée : usage local uniquement. Cognito, l’autorisation des API, l’isolation des historiques et le coffre de secrets sont à réaliser avant un accès partagé. Aucun commit ni push n’est effectué par l’application.
+Depuis le 15 novembre 2026, la connexion locale à propriétaire unique protège les API. L’adaptateur Cognito est préparé mais non activé faute de configuration AWS. L’isolation multi-utilisateur et le coffre de secrets restent à réaliser avant un accès partagé. Voir [CONNEXION.md](CONNEXION.md). Aucun commit ni push n’est effectué par l’application.
+
+## Validation réelle — 13 novembre 2026
+
+L’utilisateur a autorisé l’envoi des questions, extraits et contexte à Gemini avec la clé existante. Les vérifications ont utilisé les véritables routes HTTP, le corpus du dépôt MUTTI-AGENT, Python/LangGraph et Gemini 3.8 Flash. Les conversations de validation ont été stockées dans un dossier temporaire isolé, puis supprimées ; les chats de l’utilisateur n’ont pas été modifiés.
+
+Le fichier de configuration pointait vers un ancien `.env` devenu vide. Le pointeur privé utilise maintenant le `.env` existant du dépôt actif, sans recopier les clés. Ce fichier et `.runtime` restent ignorés par Git.
+
+| Parcours | État | Durée observée | Citations | Événements |
+| --- | --- | ---: | ---: | ---: |
+| Question RAG : revenu annuel Meta 2024 | Terminé | 8,0 s | 1 | 4 |
+| Résumé : comparaison Meta / Google 2024 | Terminé | 35,1 s | 2 | 8 |
+
+Chaque citation a été retrouvée textuellement dans le document exposé par l’API et chaque réponse a été retrouvée dans le stockage persistant isolé. Les quatre rôles du résumé ont réellement terminé ; aucun événement n’est simulé. Ces deux mesures ponctuelles ne constituent pas un benchmark ni une garantie de latence. Le rendu navigateur n’a pas été revalidé dans cette étape.
+
+Google refusait la génération Gemini 2.5 Flash pour cette clé bien que sa fiche soit consultable. Le choix actuel est fondé sur la [liste officielle des modèles](https://ai.google.dev/gemini-api/docs/models) et les [paramètres de raisonnement de generateContent](https://ai.google.dev/gemini-api/docs/generate-content/thinking). Le passage à l’API Interactions n’est pas nécessaire au fonctionnement validé ici.
+
+Qdrant reste non utilisé : la recherche est BM25 locale. L’authentification locale protège désormais les API ; Cognito reste non activé. L’isolation multi-utilisateur et le coffre AWS restent à connecter avant un accès partagé. Aucun commit, push ou déploiement public n’a été effectué.
+
+## Validation reproductible et connexion — 15 novembre 2026
+
+Le notebook `13 Validation RAG sur les documents metiers.ipynb` réutilise exactement le catalogue, la recherche, les permissions, le connecteur et le worker de cette application via `interface/scripts/validate-business-rag.mjs`. Six cas métier couvrent les quatre entreprises, une comparaison et une période absente. Les valeurs attendues proviennent des rapports locaux. Le mode live exige un indicateur explicite et n’utilise aucun historique personnel.
+
+Le serveur expose maintenant `sessions-v5` : les routes métier exigent une session réelle, y compris les PDF et les lancements IA. Les vérifications HTTP créent un propriétaire jetable dans un dossier temporaire ; aucun compte de test n’est installé dans l’atelier réel. Le notebook appelle la couche métier par CLI locale, sous l’autorité du compte système qui possède le dépôt, et n’ouvre pas de chemin HTTP anonyme.

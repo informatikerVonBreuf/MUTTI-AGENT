@@ -80,3 +80,8 @@ test('Après redémarrage, une analyse en cours devient interrompue sans appel p
 test('Le statut ne divulgue jamais la clé du fournisseur',async t=>{
   const {connector}=await fixture(t,async()=>({connected:true}));assert.equal(connector.status().connected,false);await connector.probe();assert.equal(connector.status().connected,true);assert.doesNotMatch(JSON.stringify(connector.status()),/fake-test-key/);assert.equal(connector.status().vector.used,false);
 });
+test('Un modèle visible mais refusé à la génération ne reste pas affiché disponible',async t=>{
+  const {store,connector}=await fixture(t,async(config,job)=>{if(job.mode==='probe')return {connected:true};throw new BackendError('MODEL_NOT_FOUND');});
+  await connector.probe();assert.equal(connector.status().connected,true);const q=await question(store);await connector.start(q.id,q);
+  assert.equal((await ended(connector,q.id)).error.code,'MODEL_NOT_FOUND');assert.equal(connector.status().connected,false);assert.equal(connector.status().error.code,'MODEL_NOT_FOUND');assert.equal(store.getThread(q.id).messages.length,1);
+});

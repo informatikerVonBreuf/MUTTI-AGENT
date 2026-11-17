@@ -165,14 +165,8 @@ def live_finance_researcher(query: str):
         Research results from Yahoo Finance
     """
 
-    code = f"""
-import asyncio
-from scripts.yahoo_mcp import finance_research
-asyncio.run(finance_research("{query}"))
-"""
-    result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True)
-
-    return result.stdout
+    from scripts.finance_subprocess import run_finance_query
+    return run_finance_query(query)
 
 
 @tool

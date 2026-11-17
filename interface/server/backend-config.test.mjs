@@ -15,6 +15,7 @@ test('Un pointeur local sélectionne le fichier privé et le bon interpréteur',
   const options=await fixture(t),environmentFile=path.join(options.root,'private.env');await fs.writeFile(environmentFile,'GEMINI_API_KEY=FAKE_PRIVATE_KEY');
   await fs.writeFile(path.join(options.root,'backend-settings.json'),JSON.stringify({environmentFile,pythonExecutable:'custom-python'}));
   const config=await loadBackendConfig({...options,env:{}});assert.equal(config.apiKey,'FAKE_PRIVATE_KEY');assert.equal(config.python,'custom-python');
+  assert.equal(config.model,'gemini-3.8-flash');
 });
 test('Un nom de modèle permettant de modifier le chemin distant est refusé',async t=>{
   const options=await fixture(t);await assert.rejects(loadBackendConfig({...options,env:{FOLIO_GEMINI_MODEL:'../../other?key=invalid'}}),/Nom de modèle invalide/);

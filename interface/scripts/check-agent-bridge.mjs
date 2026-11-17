@@ -10,12 +10,13 @@ for(const mode of ['chat','thematic']){
   const events=[];let retrievals=0,models=0;
   const result=await runPython(config,{mode,question:'Quels revenus annuels en 2024 ?',context:{recentMessages:[]}},{onEvent:event=>events.push(event),onRetrieve:async request=>{assert.equal(request.tool,'retrieve_passages');retrievals++;return {passages:[passage]};},onModel:async request=>{
     models++;const fields=request.schema?.properties||{};
-    if(fields.axes)return {axes:['Revenus annuels']};
+    if(fields.axes)return {axes:['Revenus annuels','Évolution','Périmètre publié']};
     if(fields.approvedIndices)return {approvedIndices:[0]};
+    if(fields.selectedIndices)return {selectedIndices:[0]};
     assert.ok(fields.claims);return {claims:[{claim:'Le revenu annuel publié est de 100 millions de dollars.',evidenceId:passage.id,quote:passage.text,sourceYear:passage.year}]};
   }});
-  assert.equal(result.claims.length,1);assert.equal(result.claims[0].evidenceId,passage.id);assert.equal(retrievals,1);
-  assert.equal(models,mode==='chat'?2:3);assert.equal(events.length,mode==='chat'?4:8);
+  assert.equal(result.claims.length,1);assert.equal(result.claims[0].evidenceId,passage.id);assert.equal(retrievals,mode==='chat'?1:3);
+  assert.equal(models,mode==='chat'?2:6);assert.equal(events.length,mode==='chat'?4:8);
   if(mode==='thematic')assert.equal(result.engine,'langgraph_bounded');
 }
 console.log('Pont Node/Python et graphe LangGraph vérifiés hors ligne : chat et résumé, événements et citations.');

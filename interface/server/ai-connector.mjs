@@ -51,7 +51,7 @@ export async function createAIConnector({store,config,runner=runPython,modelRequ
         for(const claim of admitted){const passage=evidence.get(claim.evidenceId);if(!numbers.has(passage.id)){numbers.set(passage.id,citations.length+1);citations.push({documentId:passage.documentId,title:passage.name,page:passage.page,quote:claim.quote,evidenceId:passage.id,verification:'exact_quote_and_source_match',truthVerified:false});}if(thread.kind==='thematic'&&claim.axis!==axis){axis=typeof claim.axis==='string'?claim.axis.slice(0,240):'';if(axis)paragraphs.push('### '+axis);}paragraphs.push(claim.claim.trim()+' ['+numbers.get(passage.id)+']');}
         const content=paragraphs.join('\n\n');await store.addAssistantMessage(threadId,{content,citations,runId:run.id,sourceMessageId:messageId});
         run.status='completed';run.verifiedClaimCount=admitted.length;provider={...provider,connected:true,state:'ready',error:null};
-      }catch(error){run.status=controller.signal.aborted?'cancelled':'failed';run.error=cleanError(controller.signal.aborted?new BackendError('CANCELLED'):error);for(const task of run.tasks)if(task.status==='running')task.status=run.status;}
+      }catch(error){run.status=controller.signal.aborted?'cancelled':'failed';run.error=cleanError(controller.signal.aborted?new BackendError('CANCELLED'):error);if(['MODEL_AUTH','MODEL_QUOTA','MODEL_UNAVAILABLE','MODEL_NOT_FOUND','MODEL_REQUEST'].includes(run.error.code))provider={...provider,connected:false,state:'unavailable',error:run.error};for(const task of run.tasks)if(task.status==='running')task.status=run.status;}
       finally{run.finishedAt=new Date().toISOString();try{await save();await writes;}finally{active.delete(threadId);}}
     })();handle.done.catch(()=>{});return {...run};
   }
