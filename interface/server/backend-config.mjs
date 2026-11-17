@@ -22,5 +22,6 @@ export async function loadBackendConfig({projectRoot,storageDirectory,env=proces
     apiKey:env.FOLIO_DISABLE_AI==='1'||simulated?'':(read('GOOGLE_API_KEY')||read('GEMINI_API_KEY')||read('GOOGLE_API')||''),
     provider:simulated?'simulated':'gemini',simulated,simulatedDelayMs:delay===undefined?350:Math.min(delay,10000),
     model:simulated?'simulated':model,environmentFile,qdrantUrl:read('QDRANT_URL')||'http://127.0.0.1:6333',timeoutMs:180000,tracing,
+    prewarm:read('FOLIO_PREWARM')!=='0',
     priceOverride:{input:positive(read('FOLIO_PRICE_INPUT_PER_MTOK')),output:positive(read('FOLIO_PRICE_OUTPUT_PER_MTOK'))}};
 }

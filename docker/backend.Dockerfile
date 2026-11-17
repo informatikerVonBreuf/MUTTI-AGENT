@@ -30,7 +30,7 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY --chown=root:root interface/package.json interface/package.json
 COPY --chown=root:root interface/server interface/server
-COPY --chown=root:root scripts/__init__.py scripts/folio_worker.py scripts/security_paths.py scripts/
+COPY --chown=root:root scripts/__init__.py scripts/folio_worker.py scripts/security_paths.py scripts/agent_security.py scripts/agent_middleware.py scripts/
 RUN rm -f interface/server/*.test.mjs
 USER folio
 WORKDIR /app/interface

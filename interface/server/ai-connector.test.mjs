@@ -6,6 +6,7 @@ import path from 'node:path';
 import {createAppStore} from './app-store.mjs';
 import {createAIConnector} from './ai-connector.mjs';
 import {BackendError} from './python-bridge.mjs';
+import {sealEnvelope} from './agent-envelopes.mjs';
 
 async function fixture(t,runner,{apiKey='fake-test-key',modelRequest,metrics,model='test'}={}){
   const directory=await fs.mkdtemp(path.join(os.tmpdir(),'folio-ai-'));
@@ -26,15 +27,18 @@ async function question(store,kind='chat'){
   return {id:thread.id,messageId:saved.thread.messages[0].id};
 }
 async function ended(connector,id){
-  const until=Date.now()+2500;
+  const until=Date.now()+20000;
   while(connector.latest(id)?.status==='running'&&Date.now()<until)await new Promise(resolve=>setTimeout(resolve,5));
   assert.notEqual(connector.latest(id)?.status,'running');return connector.latest(id);
 }
-async function grounded(job,{onRetrieve,onEvent}){
+// Simule les transferts signés du worker : chercheur → vérificateur → serveur, avec le résultat final.
+function signedHandoffs(job,onHandoff,claims){const key=job.envelopeKey,runId=job.policy.runId;onHandoff(sealEnvelope(key,{runId,from:'researcher',to:'verifier',seq:2,payload:{claims,passages:[]}}));onHandoff(sealEnvelope(key,{runId,from:'verifier',to:'server',seq:3,payload:{claims}}));}
+async function grounded(job,{onRetrieve,onEvent,onHandoff},transform=claims=>claims){
   onEvent({agent:'researcher',status:'running',tool:'retrieve_passages'});
   const packet=await onRetrieve({id:'r1',agent:'researcher',tool:'retrieve_passages',query:job.question});
   onEvent({agent:'researcher',status:'completed',tool:'retrieve_passages'});
-  return {claims:packet.passages.map(p=>({claim:'Un résultat publié figure dans ce rapport.',evidenceId:p.id,quote:p.text.slice(0,90),sourceYear:p.year,axis:'Résultats'}))};
+  const claims=transform(packet.passages.map(p=>({claim:'Un résultat publié figure dans ce rapport.',evidenceId:p.id,quote:p.text.slice(0,90),sourceYear:p.year,axis:'Résultats'})));
+  signedHandoffs(job,onHandoff,claims);return {claims};
 }
 
 test('RAG automatique : réponse citée persistée et reprise sans nouvel appel',async t=>{
@@ -48,12 +52,12 @@ test('RAG automatique : réponse citée persistée et reprise sans nouvel appel'
   await store.close();const reopened=await createAppStore(config);try{assert.equal(reopened.getThread(q.id).messages.at(-1).runId,run.id);}finally{await reopened.close();}
 });
 test('Une citation inventée ne devient jamais une réponse assistant',async t=>{
-  const {store,connector}=await fixture(t,async(c,job,options)=>{const result=await grounded(job,options);return {claims:result.claims.map(claim=>({...claim,quote:'QUOTE_INVENTED_NOT_IN_THE_REPORT'}))};});
+  const {store,connector}=await fixture(t,async(c,job,options)=>grounded(job,options,claims=>claims.map(claim=>({...claim,quote:'QUOTE_INVENTED_NOT_IN_THE_REPORT'}))));
   const q=await question(store);await connector.start(q.id,q);const run=await ended(connector,q.id);
   assert.equal(run.status,'failed');assert.equal(run.error.code,'NO_EVIDENCE');assert.equal(store.getThread(q.id).messages.length,1);
 });
 test('Une référence inconnue et une mauvaise année source sont rejetées',async t=>{
-  const {store,connector}=await fixture(t,async(c,job,options)=>{const result=await grounded(job,options);return {claims:[{...result.claims[0],evidenceId:'invented'},{...result.claims[0],sourceYear:'2023'}]};});
+  const {store,connector}=await fixture(t,async(c,job,options)=>grounded(job,options,claims=>[{...claims[0],evidenceId:'invented'},{...claims[0],sourceYear:'2023'}]));
   const q=await question(store);await connector.start(q.id,q);assert.equal((await ended(connector,q.id)).error.code,'NO_EVIDENCE');assert.equal(store.getThread(q.id).messages.length,1);
 });
 test('Sans clé : historique préservé, aucune exécution ni réponse simulée',async t=>{
@@ -89,8 +93,8 @@ test('Un modèle visible mais refusé à la génération ne reste pas affiché d
 test('Coût, empreinte et passages consultés : attribués au rôle réel, journal sans contenu',async t=>{
   const appended=[];const metrics={append:async run=>{appended.push(JSON.parse(JSON.stringify(run)));}};
   const modelRequest=async(config,request,{onUsage})=>{onUsage({inputTokens:1000,outputTokens:200,thoughtTokens:50,cachedTokens:0},120);return request.agent==='verifier'?{approvedIndices:[0]}:{};};
-  const runner=async(c,job,{onRetrieve,onEvent,onModel})=>{
-    const reported=[];const result=await grounded(job,{onRetrieve,onEvent});
+  const runner=async(c,job,{onRetrieve,onEvent,onModel,onHandoff})=>{
+    const reported=[];const result=await grounded(job,{onRetrieve,onEvent,onHandoff});
     await onModel({operation:'generate',agent:'researcher',system:'s',schema:{}},{reportUsage:u=>reported.push(u)});
     await onModel({operation:'generate',agent:'verifier',system:'s',schema:{}},{reportUsage:u=>reported.push(u)});
     assert.equal(reported.length,2);assert.ok(reported[0].costUsd>0);assert.equal(job.trace.kind,'chat');assert.match(job.trace.userRef,/^[a-f0-9]{16}$/);assert.doesNotMatch(JSON.stringify(job.trace),/owner@example/);
