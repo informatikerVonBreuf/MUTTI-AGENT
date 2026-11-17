@@ -1,3 +1,4 @@
+import {ruleSignals} from './injection-screen.mjs';
 export const AGENT_ROLES=[
   {id:'planner',name:'Planificateur',task:'Définir les axes du thème et répartir les questions.',tools:['delegate_task'],outputs:['plan'],canReadDocuments:false},
   {id:'researcher',name:'Chercheur documentaire',task:'Rechercher des passages dans les PDF autorisés et conserver leur provenance.',tools:['retrieve_passages'],outputs:['evidence'],canReadDocuments:true},
@@ -26,15 +27,10 @@ export function buildAgentPlan(thread){return {
   observability:{shown:['task','agent','status','tool','duration','evidence_ids','validation_outcome'],excluded:['private_reasoning','api_keys','raw_memory_in_logs']},
   policies:{...RAG_POLICY,automaticExecution:false},events:thread.lastRun?.events||[],runId:thread.lastRun?.id||null,error:thread.lastRun?.error||null,
 };}
+// Niveau 1 seul (règles déterministes après normalisation). Le filtrage complet, avec le classifieur
+// statistique de second niveau, est screenUntrustedText dans injection-screen.mjs.
 export function inspectUntrustedText(text){
-  const normalized=text.normalize('NFKC').replace(/[\u200B-\u200F\u2060\uFEFF]/g,'').toLowerCase();
-  const rules=[
-    ['instruction_override',/(?:ignore|disregard|oublie|ignorez).{0,70}(?:previous|system|developer|instructions|r[eè]gles)/is],
-    ['role_spoofing',/<\/?(?:system|developer|assistant)>|\[inst\]|\[system\]|<\|im_start\|>/i],
-    ['secret_exfiltration',/(?:send|upload|transmit|envoie|exfiltrat|r[eé]v[eè]le|reveal).{0,100}(?:api.?key|secret|token|password|mot de passe|cl[eé] api)/is],
-    ['tool_execution',/(?:run|execute|ex[eé]cute|lance).{0,60}(?:subprocess|powershell|shell command|terminal command|curl\s|os\.system)/is],
-  ];
-  const signals=rules.filter(([,pattern])=>pattern.test(normalized)).map(([id])=>id);
+  const signals=ruleSignals(text);
   return {disposition:signals.length?'quarantine':'eligible',signals,detector:'heuristic_rules',assurance:'not_a_complete_prompt_injection_defense'};
 }
 export function verifyEvidenceClaims(claims,passages){

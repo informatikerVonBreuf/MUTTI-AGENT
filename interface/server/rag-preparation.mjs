@@ -1,14 +1,17 @@
 import {createHash} from 'node:crypto';
 import {buildIndex,searchIndex} from './retrieval.mjs';
-import {inspectUntrustedText,RAG_POLICY} from './agent-policies.mjs';
+import {RAG_POLICY} from './agent-policies.mjs';
+import {screenUntrustedText as inspectUntrustedText,warmClassifier} from './injection-screen.mjs';
 export function createRagPreparation(documents){
   let promise;
   const textDocuments=documents.filter(doc=>doc.text).map(doc=>({...doc,file:doc.text}));
   const getIndex=()=>promise||(promise=buildIndex(textDocuments).catch(error=>{promise=null;throw error;}));
-  async function prepare({question,documentIds,threadId,memory=[]}){
+  async function prepare({question,documentIds,threadId,memory=[],allowedDocumentIds=null}){
     if(typeof question!=='string'||question.trim().length<3||question.length>RAG_POLICY.maxQuestionChars){const error=new Error('Écrivez une question de 3 à 4 000 caractères pour préparer les passages.');error.status=400;throw error;}
     if(!Array.isArray(documentIds)||documentIds.length>RAG_POLICY.maxDocuments||documentIds.some(id=>!documents.some(doc=>doc.id===id))){const error=new Error('Périmètre documentaire invalide.');error.status=400;throw error;}
-    const automaticScope=documentIds.length===0;if(automaticScope)documentIds=documents.map(doc=>doc.id);
+    // ACL documentaire appliquée AVANT la recherche : un document non autorisé n'est jamais indexé pour cette requête.
+    if(allowedDocumentIds&&documentIds.some(id=>!allowedDocumentIds.includes(id))){const error=new Error('Document hors de vos droits.');error.status=403;throw error;}
+    const automaticScope=documentIds.length===0;if(automaticScope)documentIds=allowedDocumentIds?[...allowedDocumentIds]:documents.map(doc=>doc.id);
     const eligibleDocuments=textDocuments.filter(doc=>documentIds.includes(doc.id));
     if(!eligibleDocuments.length){const error=new Error('Ces PDF n’ont pas encore de texte extrait : l’ingestion devra être raccordée.');error.status=409;throw error;}
     const result=searchIndex(await getIndex(),textDocuments,question,{depth:'deep',documentIds});
@@ -30,6 +33,6 @@ export function createRagPreparation(documents){
     };
   }
   // Préchauffage au démarrage : la première question n'attend plus la construction de l'index.
-  prepare.warm=()=>getIndex();
+  prepare.warm=async()=>{await getIndex();warmClassifier();};
   return prepare;
 }
