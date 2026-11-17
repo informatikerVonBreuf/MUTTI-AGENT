@@ -1674,6 +1674,55 @@
   .chat-panel {
     height: max(28rem, calc(100dvh - var(--topbar-height) - 11rem));
   }
+
+  /* Conversation ouverte : le fil d’Ariane suffit, l’échange prend toute la hauteur. */
+  .chat-route[data-view=thread] .editorial-page-heading {
+    display: none;
+  }
+
+  .chat-route[data-view=thread] .conversations-page {
+    padding-top: 14px;
+  }
+
+  .chat-route[data-view=thread] .chat-panel {
+    height: max(26rem, calc(100dvh - var(--topbar-height) - 2.75rem));
+  }
+
+  .chat-panel-header {
+    padding: 10px 18px 9px;
+  }
+
+  .chat-panel-header .eyebrow {
+    display: none;
+  }
+
+  .chat-panel-header h2 {
+    margin-top: 0;
+    -webkit-line-clamp: 1;
+  }
+
+  .chat-subtitle {
+    margin-top: 3px;
+  }
+
+  .chat-session-meta,
+  .pdf-context {
+    padding-block: 4px;
+  }
+
+  .chat-session-meta select {
+    min-height: 28px;
+    padding-block: 2px;
+  }
+
+  .chat-composer {
+    margin-bottom: 12px;
+  }
+
+  .chat-composer textarea {
+    min-height: 52px;
+    padding-block: 10px 4px;
+  }
 }
 
 /* Téléphones : la liste, puis l’échange choisi ; la page défile et la saisie reste au bas de l’écran. */
