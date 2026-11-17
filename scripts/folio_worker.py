@@ -18,6 +18,11 @@ except ImportError:
 from scripts.agent_security import (EnvelopeChannel, Policy, SecurityError, guard_state_write,
                                     screen_tool_output, validate_model_output)
 
+# Le worker ne tokenise jamais localement : `transformers` (dépendance facultative de langchain_core) n'est
+# jamais chargé, ni pour une analyse ni pour la vérification du modèle (sinon jusqu'à 100 s d'import).
+if "transformers" not in sys.modules:
+    sys.modules["transformers"] = None
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stdin.reconfigure(encoding="utf-8")
