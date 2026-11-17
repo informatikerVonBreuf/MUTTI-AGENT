@@ -118,6 +118,8 @@ Tous les seuils sont respectés, sans échec. Le premier passage après l’ajou
 - le texte des rapports est compressé une fois en gzip à la mise en cache, et nginx compresse les fichiers statiques et le JSON ;
 - tous les rapports sont mis en cache au démarrage.
 
+Dernière mesure sur la pile Docker complète, avec vérification anti-robot (résolue par k6), limites nginx, CSRF, audit et middleware : API p50 6 ms, p95 29 ms, p99 68 ms ; analyse simulée p50 2,5 s, p95 3,2 s, p99 3,5 s ; aucun échec.
+
 Deux analyses enchaînées sans pause n’ont pas le temps de bénéficier du worker de réserve ; elles paient alors l’import de Python, de quelques secondes à 20 s sur une machine saturée.
 
 Les réponses obtenues (164 501 M$ et 93 736 M$) sont citées et contrôlées. Les deux durées incluent la construction de l’index à froid, corrigée ensuite par le préchauffage. Pour le second run, LangSmith a reçu l’arbre complet : racine, chercheur, recherche, deux appels modèle avec leurs tokens et leur coût, vérificateur. Les entrées et sorties étaient vides. Deux mesures ponctuelles ne constituent pas un benchmark.

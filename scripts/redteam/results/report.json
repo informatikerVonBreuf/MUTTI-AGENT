@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-11-17T15:42:46.798Z",
+ "generatedAt": "2026-11-17T20:48:32.622Z",
  "classifier": {
   "threshold": 0.6,
   "model": "logistic_regression_hashed_words_char4",
@@ -344,7 +344,7 @@
     "citations": 2,
     "handoffs": 3,
     "securityDecisions": 0,
-    "durationMs": 21691
+    "durationMs": 7260
    },
    {
     "question": "Quel est le résultat net d'Apple pour l'exercice 2024 ?",
@@ -353,7 +353,7 @@
     "citations": 2,
     "handoffs": 3,
     "securityDecisions": 0,
-    "durationMs": 13460
+    "durationMs": 822
    },
    {
     "question": "Quel est le chiffre d'affaires d'Amazon Web Services en 2024 ?",
@@ -362,7 +362,7 @@
     "citations": 2,
     "handoffs": 3,
     "securityDecisions": 0,
-    "durationMs": 14958
+    "durationMs": 4434
    },
    {
     "question": "Quelles sont les dépenses de recherche et développement de Google en 2024 ?",
@@ -371,7 +371,7 @@
     "citations": 2,
     "handoffs": 3,
     "securityDecisions": 0,
-    "durationMs": 22353
+    "durationMs": 1126
    },
    {
     "question": "Quel est le résultat opérationnel de Meta en 2024 ?",
@@ -380,7 +380,7 @@
     "citations": 2,
     "handoffs": 3,
     "securityDecisions": 0,
-    "durationMs": 22188
+    "durationMs": 5685
    },
    {
     "question": "Combien Apple a-t-il consacré aux rachats d'actions en 2024 ?",
@@ -389,7 +389,7 @@
     "citations": 2,
     "handoffs": 3,
     "securityDecisions": 0,
-    "durationMs": 27840
+    "durationMs": 1334
    }
   ]
  },
