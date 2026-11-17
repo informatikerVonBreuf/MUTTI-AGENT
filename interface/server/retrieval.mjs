@@ -11,6 +11,9 @@ const vocabulary = {
   actifs:['assets'], passif:['liabilities'], actions:['stock','shares'], action:['stock','shares'], risque:['risk'], risques:['risk'],
   annuel:['annual'], annuelle:['annual'], trimestre:['quarter'], trimestriel:['quarter'], ia:['artificial','intelligence'],
   publicite:['advertising'], services:['services'], cloud:['cloud','aws'], performance:['revenue','income'], comparer:['revenue','income'],
+  // Formes courantes des questions en français : sans elles, « ventes nettes » ou « publicitaire » ne trouvent aucun passage anglais.
+  publicitaire:['advertising'], publicitaires:['advertising'], vente:['sales'], ventes:['sales'], nette:['net'], nettes:['net'],
+  operationnel:['operating'], operationnelle:['operating'], operationnels:['operating'], exploitation:['operating'],
 };
 export const normalize = text => text.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 const tokenize = text => normalize(text).match(/[a-z0-9]{2,}/g) || [];
