@@ -10,8 +10,9 @@ Object.assign(messages,{
   TOOL_DENIED:'Un agent a demandé un outil qui ne lui est pas autorisé : l’analyse a été arrêtée.',
   DELEGATION_DENIED:'Une délégation entre agents non autorisée a été refusée.',
   STATE_WRITE_DENIED:'Un agent a tenté d’écrire hors de son périmètre : l’analyse a été arrêtée.',
-  OUTPUT_REJECTED:'La sortie du modèle contenait des éléments interdits (lien sortant ou instruction) : elle a été refusée.',
+  OUTPUT_REJECTED:'La sortie du modèle n’a pas passé le contrôle de sortie (fuite du jeton témoin, secret, balisage actif ou instruction) : aucune réponse n’a été publiée.',
   POLICY_INVALID:'La politique de l’analyse est invalide.',
+  INPUT_REJECTED:'La question a été refusée par le filtre d’entrée.',
 });
 export class BackendError extends Error{constructor(code){super(messages[code]||messages.AGENT_FAILURE);this.code=code;}}
 
@@ -47,7 +48,7 @@ function takeWorker(config,{bridgeModel,mode}){
   const child=spawnWorker(config,{bridgeModel});if(bridgeModel&&mode!=='probe')setImmediate(()=>prewarmWorker(config));return child;
 }
 
-export function runPython(config,job,{onEvent=()=>{},onRetrieve,onModel,onHandoff=()=>{},onSecurity=()=>{},signal}={}){
+export function runPython(config,job,{onEvent=()=>{},onStage=()=>{throw new BackendError('INVALID_OUTPUT');},onRetrieve,onModel,onTool,onHandoff=()=>{},onSecurity=()=>{},signal}={}){
   if(!config.apiKey&&!config.simulated)return Promise.reject(new BackendError('MISSING_KEY'));
   return new Promise((resolve,reject)=>{
     const child=takeWorker(config,{bridgeModel:Boolean(onModel),mode:job.mode});
@@ -58,6 +59,8 @@ export function runPython(config,job,{onEvent=()=>{},onRetrieve,onModel,onHandof
     child.on('error',()=>finish(new BackendError('AGENT_FAILURE')));child.stdin.on('error',()=>{});child.stderr.on('data',()=>{});
     lines.on('line',line=>{bytes+=Buffer.byteLength(line);if(bytes>1_000_000)return finish(new BackendError('INVALID_OUTPUT'));let packet;try{packet=JSON.parse(line);}catch{return finish(new BackendError('INVALID_OUTPUT'));}
       if(packet.type==='event'){try{onEvent({agent:packet.agent,status:packet.status,tool:packet.tool||null});}catch{finish(new BackendError('INVALID_OUTPUT'));}}
+      else if(packet.type==='stage'){try{onStage({stage:packet.stage,status:packet.status,detail:packet.detail});}catch{finish(new BackendError('INVALID_OUTPUT'));}}
+      else if(packet.type==='tool'){toolChain=toolChain.then(async()=>{if(settled||!onTool||typeof packet.id!=='string')throw new BackendError('INVALID_OUTPUT');const data=await onTool(packet);if(!settled)child.stdin.write(JSON.stringify({id:packet.id,packet:data})+'\n');}).catch(error=>finish(error instanceof BackendError?error:new BackendError('AGENT_FAILURE')));}
       else if(packet.type==='handoff'){try{onHandoff(packet.envelope);}catch(error){finish(error instanceof BackendError?error:Object.assign(new BackendError('INTEGRITY_VIOLATION'),{reason:error.reason}));}}
       else if(packet.type==='security'){try{onSecurity(packet);}catch{}}
       else if(packet.type==='retrieve'){toolChain=toolChain.then(async()=>{if(settled||!onRetrieve)throw new BackendError('INVALID_OUTPUT');const data=await onRetrieve(packet);if(!settled)child.stdin.write(JSON.stringify({id:packet.id,packet:data})+'\n');}).catch(error=>finish(error instanceof BackendError?error:new BackendError('AGENT_FAILURE')));}

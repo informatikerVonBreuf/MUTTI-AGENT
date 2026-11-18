@@ -29,7 +29,9 @@ test('Registre : coût et empreinte par agent ; simulé = zéro, sans faux impac
   const snap=ledger.snapshot();
   assert.equal(snap.byAgent.researcher.calls,2);assert.equal(snap.total.calls,3);
   assert.equal(snap.total.energyWh,Math.round(3*FOOTPRINT.energyWh*1e4)/1e4);assert.equal(snap.footprint.assurance,'estimation');
-  assert.ok(snap.total.costUsd>0);assert.throws(()=>ledger.record('intrus',{}),/Rôle inconnu/);
+  assert.ok(snap.total.costUsd>0);assert.throws(()=>ledger.record('intrus',{}),/Rôle ou étape inconnu/);
+  ledger.record('generation',{inputTokens:800,outputTokens:60},500);const withStage=ledger.snapshot();
+  assert.equal(withStage.byStage.generation.calls,1);assert.equal(withStage.byAgent.generation,undefined,'une étape du chat RAG n’est pas un agent');assert.equal(withStage.total.calls,4);
   const simulated=createUsageLedger({model:'simulated',simulated:true});simulated.record('researcher',{inputTokens:1000,outputTokens:100});
   const s=simulated.snapshot();assert.equal(s.total.costUsd,0);assert.equal(s.total.energyWh,0);assert.equal(s.footprint.assurance,'simulated_no_model_call');
   const unknown=createUsageLedger({model:'modele-inconnu'});unknown.record('writer',{inputTokens:1});assert.equal(unknown.snapshot().total.costUsd,null);

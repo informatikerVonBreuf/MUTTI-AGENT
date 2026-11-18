@@ -1,10 +1,12 @@
 import {ruleSignals} from './injection-screen.mjs';
 export const AGENT_ROLES=[
   {id:'planner',name:'Planificateur',task:'Définir les axes du thème et répartir les questions.',tools:['delegate_task'],outputs:['plan'],canReadDocuments:false},
-  {id:'researcher',name:'Chercheur documentaire',task:'Rechercher des passages dans les PDF autorisés et conserver leur provenance.',tools:['retrieve_passages'],outputs:['evidence'],canReadDocuments:true},
+  {id:'researcher',name:'Chercheur documentaire',task:'Rechercher des passages dans les PDF autorisés, compléter par les données de marché (MCP Yahoo Finance) et conserver leur provenance.',tools:['retrieve_passages','market_data'],outputs:['evidence'],canReadDocuments:true},
   {id:'verifier',name:'Vérificateur',task:'Contrôler les références, les citations, les périodes et les points non établis.',tools:['inspect_evidence'],outputs:['verification'],canReadDocuments:true},
   {id:'writer',name:'Rédacteur',task:'Rédiger le résumé par thématique à partir des éléments admis, avec leurs limites.',tools:['compose_summary'],outputs:['summary'],canReadDocuments:false},
 ];
+export const MARKET_TICKERS=['AMZN','AAPL','GOOGL','META'];
+export const MARKET_DATASETS=['stock_info','income_stmt'];
 export const RAG_POLICY={version:'folio-rag-v1',maxDocuments:8,maxPassages:8,maxPassageChars:1800,maxContextChars:12000,maxQuestionChars:4000,readOnly:true,externalNetwork:false,toolBudget:12,delegationDepth:1};
 export function authorizeToolCall({agent,tool,args={}},{documentIds=[],evidenceIds=[],remainingCalls=RAG_POLICY.toolBudget,depth=0}={}){
   const role=AGENT_ROLES.find(role=>role.id===agent);
@@ -12,10 +14,12 @@ export function authorizeToolCall({agent,tool,args={}},{documentIds=[],evidenceI
   if(!Number.isInteger(remainingCalls)||remainingCalls<=0)throw new Error('Budget d’outils épuisé.');
   if(depth>RAG_POLICY.delegationDepth)throw new Error('Profondeur de délégation dépassée.');
   if(!args||typeof args!=='object'||Array.isArray(args))throw new Error('Arguments invalides.');
-  const keys={delegate_task:['target','task'],retrieve_passages:['documentIds','query'],inspect_evidence:['documentIds','evidenceIds'],compose_summary:['verifiedEvidenceIds','theme']}[tool];
+  const keys={delegate_task:['target','task'],retrieve_passages:['documentIds','query'],market_data:['ticker','dataset'],inspect_evidence:['documentIds','evidenceIds'],compose_summary:['verifiedEvidenceIds','theme']}[tool];
   if(Object.keys(args).some(key=>!keys.includes(key)))throw new Error('Argument hors contrat.');
   if(tool==='delegate_task'&&(!['researcher','verifier','writer'].includes(args.target)||typeof args.task!=='string'||!args.task.trim()||args.task.length>1000))throw new Error('Délégation invalide.');
-  if(role.canReadDocuments&&(!Array.isArray(args.documentIds)||!args.documentIds.length||args.documentIds.some(id=>!documentIds.includes(id))))throw new Error('Document hors périmètre.');
+  // Données de marché : uniquement les tickers des entreprises du corpus et deux jeux de données en lecture seule.
+  if(tool==='market_data'&&(!MARKET_TICKERS.includes(args.ticker)||!MARKET_DATASETS.includes(args.dataset)))throw new Error('Données de marché hors contrat.');
+  if(role.canReadDocuments&&tool!=='market_data'&&(!Array.isArray(args.documentIds)||!args.documentIds.length||args.documentIds.some(id=>!documentIds.includes(id))))throw new Error('Document hors périmètre.');
   if(tool==='retrieve_passages'&&(typeof args.query!=='string'||!args.query.trim()||args.query.length>RAG_POLICY.maxQuestionChars))throw new Error('Question de recherche invalide.');
   if(tool==='inspect_evidence'&&(!Array.isArray(args.evidenceIds)||args.evidenceIds.some(id=>typeof id!=='string'||!evidenceIds.includes(id))))throw new Error('Références invalides.');
   if(tool==='compose_summary'&&(!Array.isArray(args.verifiedEvidenceIds)||args.verifiedEvidenceIds.some(id=>typeof id!=='string'||!evidenceIds.includes(id))||typeof args.theme!=='string'||args.theme.length>120))throw new Error('Synthèse hors contrat.');

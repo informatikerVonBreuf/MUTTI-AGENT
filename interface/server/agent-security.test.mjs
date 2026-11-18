@@ -112,40 +112,45 @@ async function connectorFixture(t,runner,options={}){
   const audit={append:(action,fields)=>entries.push({action,...fields})};
   const connector=await createAIConnector({store,config:{apiKey:'fake',model:'gemini-3.8-flash',qdrantUrl:'invalid',timeoutMs:5000},runner,audit,...options});
   t.after(()=>connector.close());
-  const thread=await store.createThread({kind:'chat'});const saved=await store.addMessage(thread.id,'Quel est le revenu de Meta en 2024 ?');
+  const kind=options.kind||'chat';delete options.kind;
+  const thread=await store.createThread({kind,theme:kind==='thematic'?'Revenus de Meta':''});const saved=await store.addMessage(thread.id,'Quel est le revenu de Meta en 2024 ?');
   const done=async()=>{for(let i=0;i<2000&&connector.latest(thread.id)?.status==='running';i++)await new Promise(r=>setTimeout(r,10));return connector.latest(thread.id);};
   return {store,connector,thread,messageId:saved.thread.messages[0].id,done,entries};
 }
 async function retrieveAndClaims(job,{onRetrieve}){const packet=await onRetrieve({id:'r1',agent:'researcher',tool:'retrieve_passages',query:job.question});return packet.passages.slice(0,1).map(p=>({claim:'Le revenu publié.',evidenceId:p.id,quote:p.text.slice(0,40),sourceYear:p.year}));}
-test('Intégrité : un résultat qui ne correspond pas au dernier transfert signé est refusé',async t=>{
+// Les transferts signés n'existent plus que dans les résumés thématiques (agents) ; le chat RAG n'en a pas.
+test('Intégrité (résumés) : un résultat qui ne correspond pas au dernier transfert signé est refusé',async t=>{
   const {connector,thread,messageId,done,entries}=await connectorFixture(t,async(c,job,options)=>{
-    const claims=await retrieveAndClaims(job,options),key=job.envelopeKey,runId=job.policy.runId;
-    options.onHandoff(sealEnvelope(key,{runId,from:'researcher',to:'verifier',seq:2,payload:{}}));
-    options.onHandoff(sealEnvelope(key,{runId,from:'verifier',to:'server',seq:3,payload:{claims:[]}}));
+    const claims=await retrieveAndClaims(job,options),key=job.envelopeKey,runId=job.policy.runId,seal=(from,to,seq,payload)=>options.onHandoff(sealEnvelope(key,{runId,from,to,seq,payload}));
+    seal('planner','researcher',2,{});seal('researcher','verifier',3,{});seal('verifier','writer',4,{});seal('writer','server',5,{claims:[]});
     return {claims};// différent de la charge signée
-  });
+  },{kind:'thematic'});
   await connector.start(thread.id,{messageId});const run=await done();
-  assert.equal(run.error.code,'INTEGRITY_VIOLATION');assert.equal(run.handoffs.length,3);
+  assert.equal(run.error.code,'INTEGRITY_VIOLATION');assert.equal(run.handoffs.length,5);
   assert.ok(run.security.some(s=>s.kind==='handoff_rejected'));assert.ok(entries.some(e=>e.action==='security'&&e.decision==='blocked'));
 });
-test('Intégrité : un transfert rejoué ou falsifié arrête l’exécution',async t=>{
+test('Intégrité (résumés) : un transfert rejoué ou falsifié arrête l’exécution',async t=>{
   const {connector,thread,messageId,done}=await connectorFixture(t,async(c,job,options)=>{
-    const key=job.envelopeKey,runId=job.policy.runId;const e2=sealEnvelope(key,{runId,from:'researcher',to:'verifier',seq:2,payload:{}});
+    const key=job.envelopeKey,runId=job.policy.runId;const e2=sealEnvelope(key,{runId,from:'planner',to:'researcher',seq:2,payload:{}});
     options.onHandoff(e2);options.onHandoff(e2);return {claims:[]};
-  });
+  },{kind:'thematic'});
   await connector.start(thread.id,{messageId});assert.equal((await done()).error.code,'INTEGRITY_VIOLATION');
 });
 test('Budget : un dépassement de tokens ou de coût arrête l’analyse et reste visible',async t=>{
   const modelRequest=async(config,request,{onUsage})=>{onUsage({inputTokens:300000,outputTokens:10},50);return {claims:[]};};
-  const {connector,thread,messageId,done,entries}=await connectorFixture(t,async(c,job,{onModel})=>{await onModel({operation:'generate',agent:'researcher',system:'s',schema:{}});return {claims:[]};},{modelRequest});
+  const {connector,thread,messageId,done,entries}=await connectorFixture(t,async(c,job,{onModel})=>{await onModel({operation:'generate',stage:'generation',system:'s',schema:{}});return {claims:[]};},{modelRequest});
   await connector.start(thread.id,{messageId});const run=await done();
   assert.equal(run.error.code,'BUDGET_EXHAUSTED');assert.ok(run.security.some(s=>s.kind==='budget'));
-  assert.ok(entries.some(e=>e.action==='model_call'&&e.agent==='researcher'));assert.ok(entries.some(e=>e.action==='run_end'&&e.outcome==='failed'));
+  assert.ok(entries.some(e=>e.action==='model_call'&&e.agent==='generation'));assert.ok(entries.some(e=>e.action==='run_end'&&e.outcome==='failed'));
   assert.ok(entries.every(e=>!JSON.stringify(e).includes('Quel est le revenu')));
 });
 test('Le serveur injecte politique, identité pseudonyme et clé ; le modèle ne les fournit jamais',async t=>{
-  let seen;const {connector,thread,messageId,done}=await connectorFixture(t,async(c,job)=>{seen=job;return {claims:[]};});
-  await connector.start(thread.id,{messageId},{actor:{id:'owner',email:'owner@example.test'}});await done();
+  let seen;const chat=await connectorFixture(t,async(c,job)=>{seen=job;return {claims:[]};});
+  await chat.connector.start(chat.thread.id,{messageId:chat.messageId},{actor:{id:'owner',email:'owner@example.test'}});await chat.done();
+  assert.equal(seen.policy.model_calls,2);assert.equal(seen.policy.retrievals,1);assert.match(seen.policy.userRef,/^[a-f0-9]{16}$/);assert.match(seen.canary,/^FOLIO-CANARY-/);
+  assert.equal(seen.envelopeKey,undefined,'le chat RAG n’a ni agent ni transfert signé');assert.doesNotMatch(JSON.stringify(seen),/owner@example/);
+  const summary=await connectorFixture(t,async(c,job)=>{seen=job;return {claims:[]};},{kind:'thematic'});
+  await summary.connector.start(summary.thread.id,{messageId:summary.messageId},{actor:{id:'owner',email:'owner@example.test'}});await summary.done();
   assert.equal(seen.policy.tool_budget,12);assert.equal(seen.policy.delegation_depth,1);assert.match(seen.policy.userRef,/^[a-f0-9]{16}$/);
-  assert.match(seen.envelopeKey,/^[a-f0-9]{64}$/);assert.equal(seen.envelope.from_role,'server');assert.doesNotMatch(JSON.stringify(seen),/owner@example/);
+  assert.match(seen.envelopeKey,/^[a-f0-9]{64}$/);assert.equal(seen.envelope.from_role,'server');assert.equal(seen.envelope.to_role,'planner');assert.doesNotMatch(JSON.stringify(seen),/owner@example/);
 });

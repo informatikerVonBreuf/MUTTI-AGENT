@@ -4,6 +4,9 @@ import {promises as fs} from 'node:fs';
 import path from 'node:path';
 
 export const ROLES=['planner','researcher','verifier','writer'];
+// Étapes du chat RAG (sans agent) ; seules generation et correction appellent le modèle.
+export const RAG_STAGES=['input_guard','query','retrieval','passage_screen','generation','output_guard','correction','answer'];
+export const MODEL_STAGES=['generation','correction'];
 
 // Tarif standard payant, vérifié le 17 novembre 2026 sur la page officielle.
 // Les jetons de raisonnement sont facturés au tarif de sortie.
@@ -59,12 +62,12 @@ export function costOf(usage,price){
 
 const emptyTotals=()=>({calls:0,inputTokens:0,outputTokens:0,thoughtTokens:0,cachedTokens:0,costUsd:0,energyWh:0,co2eG:0,waterMl:0,modelMs:0});
 
-// Registre d'une exécution : un appel modèle = une ligne attribuée à un rôle.
+// Registre d'une exécution : un appel modèle = une ligne attribuée à un rôle (résumés) ou à une étape (chat RAG).
 export function createUsageLedger({model,simulated=false,at=new Date(),priceOverride}={}){
   const price=simulated?{known:true,model:'simulated',currency:PRICING.currency,inputPerMTok:0,outputPerMTok:0,cachedInputPerMTok:0,source:'simulated'}:priceFor(model,at,priceOverride);
   const byAgent={};let costKnown=price.known;
   function record(agent,usage={},modelMs=0){
-    if(!ROLES.includes(agent))throw new Error('Rôle inconnu pour la mesure.');
+    if(!ROLES.includes(agent)&&!MODEL_STAGES.includes(agent))throw new Error('Rôle ou étape inconnu pour la mesure.');
     const row=byAgent[agent]||=emptyTotals();
     row.calls++;for(const key of ['inputTokens','outputTokens','thoughtTokens','cachedTokens'])row[key]+=number(usage[key]);
     const cost=costOf(usage,price);if(cost===null)costKnown=false;else row.costUsd+=cost;
@@ -72,12 +75,12 @@ export function createUsageLedger({model,simulated=false,at=new Date(),priceOver
     row.modelMs+=number(modelMs);
   }
   function snapshot(){
-    const total=emptyTotals(),agents={};
+    const total=emptyTotals(),agents={},stages={};
     for(const [agent,row] of Object.entries(byAgent)){
-      agents[agent]={...row,costUsd:costKnown?round(row.costUsd,8):null,energyWh:round(row.energyWh,4),co2eG:round(row.co2eG,4),waterMl:round(row.waterMl,4),modelMs:Math.round(row.modelMs)};
+      (ROLES.includes(agent)?agents:stages)[agent]={...row,costUsd:costKnown?round(row.costUsd,8):null,energyWh:round(row.energyWh,4),co2eG:round(row.co2eG,4),waterMl:round(row.waterMl,4),modelMs:Math.round(row.modelMs)};
       for(const key of Object.keys(total))total[key]+=row[key];
     }
-    return {simulated,model:simulated?'simulated':model,byAgent:agents,
+    return {simulated,model:simulated?'simulated':model,byAgent:agents,byStage:stages,
       total:{...total,costUsd:costKnown?round(total.costUsd,8):null,energyWh:round(total.energyWh,4),co2eG:round(total.co2eG,4),waterMl:round(total.waterMl,4),modelMs:Math.round(total.modelMs)},
       pricing:price,footprint:simulated?{...FOOTPRINT,energyWh:0,co2eG:0,waterMl:0,assurance:'simulated_no_model_call'}:FOOTPRINT};
   }
@@ -115,9 +118,10 @@ export function createLatencyRecorder({size=5000}={}){
 export function runRecord(run){
   const tasks=(run.tasks||[]).filter(task=>task.status!=='not_used').map(task=>({agent:task.agent,status:task.status,durationMs:Number.isFinite(task.durationMs)?task.durationMs:null}));
   const durationMs=run.startedAt&&run.finishedAt?Date.parse(run.finishedAt)-Date.parse(run.startedAt):null;
-  return {runId:run.id,kind:run.kind,status:run.status,errorCode:run.error?.code||null,startedAt:run.startedAt,finishedAt:run.finishedAt,durationMs,tasks,
+  const stages=(run.stages||[]).map(item=>({stage:item.stage,status:item.status,durationMs:Number.isFinite(item.durationMs)?item.durationMs:null}));
+  return {runId:run.id,kind:run.kind,status:run.status,errorCode:run.error?.code||null,startedAt:run.startedAt,finishedAt:run.finishedAt,durationMs,tasks,stages,
     evidenceCount:run.evidenceCount||0,verifiedClaimCount:run.verifiedClaimCount||0,simulated:Boolean(run.usage?.simulated),model:run.usage?.model||null,
-    usage:run.usage?{total:run.usage.total,byAgent:run.usage.byAgent}:null};
+    usage:run.usage?{total:run.usage.total,byAgent:run.usage.byAgent,byStage:run.usage.byStage||{}}:null};
 }
 
 export async function createMetricsLog({storageDirectory,limit=5000}){
@@ -149,8 +153,16 @@ export function aggregateRuns(records){
     for(const record of finished){const row=record.usage?.byAgent?.[role];if(!row)continue;for(const key of Object.keys(usage))usage[key]+=row[key]||0;if(row.costUsd===null)costKnown=false;}
     agents[role]={duration:summarize(durations),...usage,costUsd:costKnown?round(usage.costUsd,8):null,energyWh:round(usage.energyWh,4),co2eG:round(usage.co2eG,4),waterMl:round(usage.waterMl,4)};
   }
+  // Chat RAG : durée réelle de chaque étape et, pour les étapes qui appellent le modèle, consommation et coût.
+  const stages={};
+  for(const stage of RAG_STAGES){
+    const durations=finished.flatMap(record=>(record.stages||[]).filter(item=>item.stage===stage&&item.status==='completed').map(item=>item.durationMs));
+    const usage=emptyTotals();let known=true;
+    for(const record of finished){const row=record.usage?.byStage?.[stage];if(!row)continue;for(const key of Object.keys(usage))usage[key]+=row[key]||0;if(row.costUsd===null)known=false;}
+    stages[stage]={duration:summarize(durations),blocked:finished.reduce((count,record)=>count+(record.stages||[]).filter(item=>item.stage===stage&&item.status==='blocked').length,0),...usage,costUsd:known?round(usage.costUsd,8):null,energyWh:round(usage.energyWh,4),co2eG:round(usage.co2eG,4),waterMl:round(usage.waterMl,4)};
+  }
   const totals=emptyTotals();let costKnown=true;
   for(const record of finished){const row=record.usage?.total;if(!row)continue;for(const key of Object.keys(totals))totals[key]+=row[key]||0;if(row.costUsd===null)costKnown=false;}
-  return {runs:finished.length,simulatedRuns:finished.filter(record=>record.simulated).length,since:finished[0]?.startedAt||null,byKind,agents,
+  return {runs:finished.length,simulatedRuns:finished.filter(record=>record.simulated).length,since:finished[0]?.startedAt||null,byKind,agents,stages,
     totals:{...totals,costUsd:costKnown?round(totals.costUsd,8):null,energyWh:round(totals.energyWh,4),co2eG:round(totals.co2eG,4),waterMl:round(totals.waterMl,4)}};
 }

@@ -14,15 +14,18 @@ import re
 import time
 import unicodedata
 
-ROLE_TOOLS = {"planner": {"delegate_task"}, "researcher": {"retrieve_passages"},
+ROLE_TOOLS = {"planner": {"delegate_task"}, "researcher": {"retrieve_passages", "market_data"},
               "verifier": {"inspect_evidence"}, "writer": {"compose_summary"}}
+# Données de marché (serveur MCP Yahoo Finance, appelé par la passerelle du serveur Node) : tickers et jeux de données autorisés.
+MARKET_TICKERS = {"AMZN", "AAPL", "GOOGL", "META"}
+MARKET_DATASETS = {"stock_info", "income_stmt"}
 TRANSITIONS = {("server", "planner"), ("server", "researcher"), ("planner", "researcher"), ("researcher", "verifier"),
                ("verifier", "writer"), ("verifier", "server"), ("writer", "server")}
 EMITTED_TRUST = {"server": "trusted_instruction", "planner": "model_plan", "researcher": "untrusted_evidence",
                  "verifier": "verified_evidence", "writer": "verified_summary"}
 ACCEPTED_TRUST = {"planner": {"trusted_instruction"}, "researcher": {"trusted_instruction", "model_plan"},
                   "verifier": {"untrusted_evidence"}, "writer": {"verified_evidence"}, "server": {"verified_evidence", "verified_summary"}}
-STATE_KEYS = {"planner": {"axes"}, "researcher": {"claims", "passages"}, "verifier": {"approved"}, "writer": {"result"}}
+STATE_KEYS = {"planner": {"axes", "market"}, "researcher": {"claims", "passages"}, "verifier": {"approved"}, "writer": {"result"}}
 FIELDS = ("run_id", "from_role", "to_role", "seq", "payload_hash", "trust_level", "ts")
 LIMITS = {"tool_budget": 12, "model_calls": 6, "delegation_depth": 1, "max_tokens": 400_000, "max_cost_usd": 1.0, "deadline_ms": 180_000}
 
@@ -82,10 +85,12 @@ class Policy:
             raise SecurityError("DELEGATION_DENIED", "depth")
         if not isinstance(args, dict):
             raise SecurityError("TOOL_DENIED", "args")
-        allowed = {"delegate_task": {"target", "task"}, "retrieve_passages": {"query"},
+        allowed = {"delegate_task": {"target", "task"}, "retrieve_passages": {"query"}, "market_data": {"ticker", "dataset"},
                    "inspect_evidence": {"evidenceIds"}, "compose_summary": {"verifiedEvidenceIds"}}[tool]
         if set(args) - allowed:
             raise SecurityError("TOOL_DENIED", "unexpected_argument")
+        if tool == "market_data" and (args.get("ticker") not in MARKET_TICKERS or args.get("dataset") not in MARKET_DATASETS):
+            raise SecurityError("TOOL_DENIED", "market_argument")
         if tool == "delegate_task" and args.get("target") not in {"researcher", "verifier", "writer"}:
             raise SecurityError("DELEGATION_DENIED", "target")
         if tool == "retrieve_passages" and (not isinstance(args.get("query"), str) or not 1 <= len(args["query"].strip()) <= 4000):
@@ -183,7 +188,7 @@ def guard_state_write(role, update):
     extra = set(update) - STATE_KEYS.get(role, set()) - {"envelope"}
     if extra:
         raise SecurityError("STATE_WRITE_DENIED", ",".join(sorted(extra))[:80])
-    expected = {"axes": list, "claims": list, "passages": list, "approved": list, "result": dict, "envelope": dict}
+    expected = {"axes": list, "market": list, "claims": list, "passages": list, "approved": list, "result": dict, "envelope": dict}
     for key, value in update.items():
         if not isinstance(value, expected[key]):
             raise SecurityError("STATE_WRITE_DENIED", key)
@@ -193,11 +198,19 @@ def guard_state_write(role, update):
 # Règles de second rempart pour les sorties d'outils (le serveur applique déjà règles et classifieur).
 _INVISIBLE = re.compile("[­͏؜ᅟᅠ឴឵᠎​-‏‪-‮⁠-⁯ㅤ︀-️﻿ﾠ]")
 _RULES = [
-    ("instruction_override", re.compile(r"(?:ignore|disregard|forget|override|bypass|oublie|ignorez|ignora|olvida|ignoriere|vergiss|ignorar)\b.{0,80}\b(?:previous|prior|above|system|developer|instructions?|rules?|consignes?|regles?|instrucciones|anweisungen|istruzioni)", re.S)),
+    # « Ignorer les règles du DMA » est une vraie phrase : seules les consignes de l'assistant ou des règles qualifiées comptent.
+    ("instruction_override", re.compile(r"\b(?:ignore|disregard|forget|override|bypass|oublie|ignorer|ignorez|ne (?:tiens|tenez) (?:pas|plus) compte|ignora|olvida|ignoriere|vergiss|ignorar|esquece)\b.{0,80}?(?:\b(?:previous|prior|above|earlier|system|developer|initial|preceding|all|any|your|tes|vos|ta|ton|votre|toutes?|precedentes?|anterieures?|initiales?)\b(?:\s+\S+){0,2}?\s+(?:instructions?|rules|guidelines|consignes?|regles|directives?|prompts?|instrucciones|anweisungen|regeln|istruzioni|instrucoes)\b|\b(?:instructions?|consignes?|instrucciones|anweisungen|istruzioni|instrucoes)\b|\b(?:rules|regles|guidelines|directives)\s+(?:precedentes?|anterieures?|initiales?|previous|above)\b)", re.S)),
     ("role_spoofing", re.compile(r"</?(?:system|developer|assistant|tool)>|\[/?(?:inst|system)\]|<\|im_(?:start|end)\|>|\byou are now\b|\btu es (?:desormais|maintenant)\b")),
-    ("secret_exfiltration", re.compile(r"(?:send|upload|transmit|leak|reveal|print|envoie|revele|divulgue|affiche)\w*.{0,100}(?:api.?key|secret|token|password|mot de passe|credential|system prompt|\.env)", re.S)),
+    # Bornes de mots : « shares » n'est pas « share », « Secretary » n'est pas « secret ».
+    ("secret_exfiltration", re.compile(r"\b(?:send|sends|sending|upload\w*|transmit\w*|leak\w*|reveal\w*|print|envoie\w*|revele\w*|divulgue\w*|affiche\w*)\b.{0,100}(?:api.?key|\bsecrets?\b|\btokens?\b|password|mot de passe|credentials?\b|system prompt|\.env\b)", re.S)),
     ("tool_execution", re.compile(r"(?:run|execute|exec|lance|executer?|call|invoke)\w*.{0,60}(?:subprocess|powershell|bash|shell|terminal|curl\s|wget\s|os\.system|delegate_task|retrieve_passages|compose_summary)", re.S)),
     ("url_exfiltration", re.compile(r"!\[[^\]]{0,80}\]\(\s*https?://|https?://[^\s)]+[?&][a-z_]{1,20}=\{")),
+    # Mêmes familles que le filtre du serveur (interface/server/injection-screen.mjs), écrites indépendamment.
+    ("jailbreak", re.compile(r"\bdo anything now\b|\b(?:you are|tu es|act as)\s+(?:now\s+)?dan\b|\bjailbreak|\b(?:developer|god|unrestricted|unfiltered)\s+mode\b|\bmode\s+(?:developpeur|sans (?:filtre|restriction|limite)s?)|\b(?:answer\w*|respond\w*|reply|reponds|repondre|repondez|parle\w*)\b.{0,40}\b(?:without|sans|with no|no)\s+(?:any\s+|aucune?\s+)?(?:restrictions?|limits?|limites?|filtres?|filters?|rules|regles)\b|(?:pretend|fais semblant|imagine que tu es|roleplay as)\b.{0,80}\b(?:no rules|sans regles|unrestricted|evil|malveillant|pirate|dan)\b", re.S)),
+    ("system_prompt_extraction", re.compile(r"\b(?:system|initial|hidden|original)\s+(?:prompt|instructions)\b|\bprompt (?:systeme|initial|cache)\b|\binstructions? (?:initiales?|systeme|cachees?)\b|\b(?:repeat|print|reveal|repete\w*|affiche\w*|recopie\w*)\b\s+(?:me\s+|moi\s+)?(?:everything|all|tout|le texte|the text|ce qui)\b.{0,30}?\b(?:above|ci-dessus|precede\w*)\b|\b(?:recopie\w*|repete\w*|repeat|traduis\w*|translate|reveal|print|give|donne\w*)\b(?:\s+\S+){0,3}?\s+(?:ton|ta|tes|vos|votre|your)\s+(?:prompt|instructions?|consignes?|regles|directives?)\b|\bjeton confidentiel\b|folio-canary")),
+    ("secret_request", re.compile(r"\b(?:give|tell|share|provide|donne\w*|dis|fournis\w*)\b.{0,40}(?:api.?key|cle (?:d.)?api|mot de passe|password|\.env\b|credentials)|\b(?:what is|quel(?:le)? est)\b.{0,20}?\b(?:your|the|ton|votre|la|le)\s+(?:\w+\s+){0,2}?(?:api.?key|cle (?:d.)?api|\.env\b|google_api_key)", re.S)),
+    ("exfiltration_request", re.compile(r"\b(?:send|envoie|envoyez|envoyer|upload|transmets|exfiltrat\w*)\b.{0,80}(?:https?://|www\.|\b[\w.+-]+@[\w-]+\.[a-z]{2,}\b|webhook)", re.S)),
+    ("instruction_override", re.compile(r"(?:忽略|无视|忽视|不要理会).{0,12}(?:指令|指示|规则|说明|提示)|تجاهل.{0,40}(?:التعليمات|الاوامر|القواعد)|(?:игнорируи|забудь|не обращаи внимания).{0,60}(?:инструкци|правил|указани|предыдущ)", re.S)),
 ]
 
 

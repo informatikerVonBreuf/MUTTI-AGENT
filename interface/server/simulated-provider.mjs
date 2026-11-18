@@ -20,12 +20,18 @@ export async function callSimulated(config,request,{signal,onUsage}={}){
   await wait(Number.isFinite(config.simulatedDelayMs)?config.simulatedDelayMs:350,signal);
   const fields=request.schema.properties||{},payload=request.payload||{};
   let result;
-  if(fields.axes)result={axes:[String(payload.question||'Question').slice(0,200)]};
+  if(fields.axes){
+    const question=String(payload.question||'Question'),words=new Set(question.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().match(/[a-z0-9]+/g)||[]);
+    const tickers=Object.entries({AMZN:['amazon','amzn','aws'],AAPL:['apple','aapl'],GOOGL:['google','alphabet','googl','goog'],META:['meta','facebook']}).filter(([,names])=>names.some(name=>words.has(name))).map(([ticker])=>ticker);
+    result={axes:[question.slice(0,200)],...(fields.marketTickers?{marketTickers:tickers}:{})};
+  }
   else if(fields.approvedIndices)result={approvedIndices:(payload.claims||[]).map((_,index)=>index)};
   else if(fields.selectedIndices)result={selectedIndices:(payload.approvedClaims||[]).map((_,index)=>index)};
   else if(fields.claims){
     const passages=Array.isArray(payload.documentData)?payload.documentData.slice(0,2):[];
-    result={claims:passages.filter(p=>typeof p?.text==='string').map(p=>{const quote=firstSentence(p.text);return {claim:'[Simulé] Le passage indique : « '+quote.slice(0,300)+' »',evidenceId:p.id,quote,sourceYear:String(p.year||'')};})};
+    // Chat RAG : documentData porte evidenceId ; résumés : id. Le schéma du chat demande aussi answerable.
+    result={claims:passages.filter(p=>typeof p?.text==='string').map(p=>{const quote=firstSentence(p.text);return {claim:'[Simulé] Le passage indique : « '+quote.slice(0,300)+' »',evidenceId:p.evidenceId||p.id,quote,sourceYear:String(p.year||'')};})};
+    if(fields.answerable)result={answerable:result.claims.length>0,...result};
   }else throw new BackendError('INVALID_OUTPUT');
   try{onUsage?.({inputTokens:tokens(payload)+tokens(request.system),outputTokens:tokens(result),thoughtTokens:0,cachedTokens:0},performance.now()-started);}catch{}
   return result;

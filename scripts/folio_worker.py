@@ -1,7 +1,8 @@
 """Bounded JSON-lines bridge for Folio. No shell tools or document file access.
 
-Retrieval is delegated to the Node server, which owns document scope and budgets.
-Thematic work uses LangGraph nodes. No private model reasoning is emitted.
+Retrieval, market data (MCP) and model calls are delegated to the Node server, which owns scope and budgets.
+Chat = deterministic RAG pipeline without agents (scripts/rag_pipeline.py).
+Thematic summaries = bounded LangGraph agents (planner, researcher, verifier, writer). No private reasoning is emitted.
 """
 import json
 import os
@@ -9,14 +10,24 @@ import re
 import sys
 import urllib.request
 import urllib.error
-try:
-    import truststore
-    truststore.inject_into_ssl()
-except ImportError:
-    pass
 
-from scripts.agent_security import (EnvelopeChannel, Policy, SecurityError, guard_state_write,
+
+def use_system_certificates():
+    """Magasin de certificats du système, seulement pour un appel direct à Gemini (hors serveur).
+
+    Importé à la demande : truststore charge urllib3 et requests (environ 5 s au démarrage sous Windows),
+    alors que le worker lancé par le serveur ne fait aucun appel réseau.
+    """
+    try:
+        import truststore
+        truststore.inject_into_ssl()
+    except ImportError:
+        pass
+
+from scripts.agent_security import (EnvelopeChannel, Policy, SecurityError, guard_state_write, MARKET_TICKERS,
                                     screen_tool_output, validate_model_output)
+from scripts.rag_pipeline import (COMPANIES, COMPANY_NAME, YEAR, QUERY_LIMIT, PipelineError, chat_question,  # noqa: F401
+                                  companies_in, years_in, run_rag, source_quote)
 
 # Le worker ne tokenise jamais localement : `transformers` (dépendance facultative de langchain_core) n'est
 # jamais chargé, ni pour une analyse ni pour la vérification du modèle (sinon jusqu'à 100 s d'import).
@@ -80,7 +91,7 @@ TRACING = os.environ.get("FOLIO_TRACING") == "on" and os.environ.get("LANGSMITH_
 ROLES = ("planner", "researcher", "verifier", "writer")
 
 
-def traced(name, run_type="chain", role=None, **metadata):
+def traced(name, run_type="chain", role=None, stage=None, **metadata):
     def wrap(function):
         if not TRACING:
             return function
@@ -88,8 +99,8 @@ def traced(name, run_type="chain", role=None, **metadata):
             from langsmith import traceable
         except ImportError:
             return function
-        tags = ["role:" + role] if role else []
-        return traceable(name=name, run_type=run_type, tags=tags, metadata={**({"role": role} if role else {}), **metadata})(function)
+        tags = (["role:" + role] if role else []) + (["stage:" + stage] if stage else [])
+        return traceable(name=name, run_type=run_type, tags=tags, metadata={**({"role": role} if role else {}), **({"stage": stage} if stage else {}), **metadata})(function)
     return wrap
 
 
@@ -179,6 +190,7 @@ def request_model(system, payload, schema, agent="researcher"):
                                  "thinkingConfig": {"thinkingLevel": "low"} if model.startswith("gemini-3") else {"thinkingBudget": 0}}}
     req = urllib.request.Request("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent",
         data=json.dumps(body).encode("utf-8"), headers={"Content-Type": "application/json", "x-goog-api-key": key})
+    use_system_certificates()
     try:
         with urllib.request.urlopen(req, timeout=40) as response:
             raw = response.read(1_000_001)
@@ -278,6 +290,7 @@ def probe():
     model = os.environ.get("FOLIO_GEMINI_MODEL", "gemini-3.8-flash")
     req = urllib.request.Request("https://generativelanguage.googleapis.com/v1beta/models/" + model,
         headers={"x-goog-api-key": os.environ.get("GOOGLE_API_KEY", "")})
+    use_system_certificates()
     try:
         with urllib.request.urlopen(req, timeout=18) as response:
             data = json.load(response)
@@ -289,29 +302,6 @@ def probe():
     except (urllib.error.URLError, TimeoutError):
         raise WorkerError("MODEL_UNAVAILABLE") from None
 
-
-
-def source_quote(quote, text):
-    """Restore only whitespace differences, then return the exact original slice.
-
-    Numbers, signs, punctuation, case and words are never rewritten.
-    The Node boundary still checks the restored quote by exact substring match.
-    """
-    if not isinstance(quote, str) or not quote.strip():
-        return None
-    if quote in text:
-        return quote
-    needle = " ".join(quote.split())
-    characters, starts, ends = [], [], []
-    for token in re.finditer(r"\s+|\S", text):
-        characters.append(" " if token.group().isspace() else token.group())
-        starts.append(token.start())
-        ends.append(token.end())
-    offset = "".join(characters).find(needle)
-    if offset < 0:
-        return None
-    restored = text[starts[offset]:ends[offset + len(needle) - 1]]
-    return restored if len(restored) <= 1800 else None
 
 
 def verify_claims(question, claims, source_passages):
@@ -342,81 +332,110 @@ def evidence_payload(claims, passages):
     return {"claims": claims, "passages": [p["id"] for p in passages]}
 
 
-# Mêmes noms et tickers que les alias de la recherche (interface/server/retrieval.mjs).
-COMPANIES = {"meta": "Meta", "facebook": "Meta", "google": "Google", "alphabet": "Google", "goog": "Google",
-             "googl": "Google", "apple": "Apple", "aapl": "Apple", "amazon": "Amazon", "amzn": "Amazon", "aws": "Amazon"}
-COMPANY_NAME = re.compile(r"\b(" + "|".join(sorted(COMPANIES, key=len, reverse=True)) + r")\b", re.IGNORECASE)
-YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
-QUERY_LIMIT = 4000  # borne de la requête de recherche, comptée comme le serveur Node : en unités UTF-16
+class ChatIO:
+    """Entrées-sorties du chat RAG : paquets « stage », recherche et appel modèle étiquetés par étape, jamais par agent."""
 
+    STAGE_OF = {"passage_quarantine": "passage_screen", "output_guard": "output_guard", "correction": "correction"}
 
-def companies_in(text):
-    return list(dict.fromkeys(COMPANIES[name.lower()] for name in COMPANY_NAME.findall(text)))
+    def __init__(self):
+        self.last_usage = None
+        self._retrievals = 0
+        self._models = 0
 
+    def stage(self, stage, status, detail=None):
+        emit("stage", stage=stage, status=status, detail=detail or {})
 
-def years_in(text):
-    return list(dict.fromkeys(YEAR.findall(text)))
+    def security(self, kind, decision, reason, count=None, signals=None):
+        emit("security", kind=kind, stage=self.STAGE_OF.get(kind, kind), decision=decision, reason=str(reason)[:80], count=count, signals=list(signals or [])[:6])
 
+    def retrieve(self, query):
+        @traced("retrieval", run_type="retriever", stage="retrieval")
+        def call(query):
+            if "retrieve" in HANDLERS:
+                return HANDLERS["retrieve"](query)
+            self._retrievals += 1
+            if self._retrievals > 1:
+                raise WorkerError("BUDGET_EXHAUSTED")
+            request_id = "retrieval-" + str(self._retrievals)
+            emit("retrieve", id=request_id, stage="retrieval", tool="retrieve_passages", query=query[:4000])
+            try:
+                data = json.loads(sys.stdin.readline(1000000))
+                if data.get("id") != request_id or not isinstance(data.get("packet"), dict):
+                    raise ValueError()
+                return data["packet"]
+            except (ValueError, TypeError):
+                raise WorkerError("INVALID_OUTPUT") from None
+        return call(query)
 
-def chat_question(job):
-    """Une relance (« et sur la même période ? », « et pour Apple ? ») reçoit ce qui lui manque.
-
-    Sans cela, la recherche et le vérificateur ne savent pas de quelle entreprise ni de quelle période il
-    s'agit. Entreprise et année manquantes viennent, chacune, de la question précédente la plus récente qui
-    les nomme ; le sujet vient de la fin des deux dernières questions, d'où sont retirées les entreprises et
-    années que la relance remplace. Une question qui nomme une entreprise et une année reste telle quelle.
-    """
-    question = job["question"]
-    companies, years = companies_in(question), years_in(question)
-    if companies and years:
-        return question
-    asked = [m["content"] for m in job.get("context", {}).get("recentMessages", [])
-             if isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str)]
-    if asked and asked[-1].strip() == question.strip():
-        asked = asked[:-1]
-    kept_companies = companies or next((companies_in(text) for text in reversed(asked) if companies_in(text)), [])
-    kept_years = years or next((years_in(text) for text in reversed(asked) if years_in(text)), [])
-    if kept_companies == companies and kept_years == years:
-        return question
-
-    def topic(text):
-        text = COMPANY_NAME.sub(lambda m: m.group(0) if COMPANIES[m.group(0).lower()] in kept_companies else "…", text)
-        text = YEAR.sub(lambda m: m.group(0) if m.group(0) in kept_years else "…", text)
-        return " ".join(text.split())[-200:]
-
-    # Une question précédente qui contient une consigne suspecte ne prête que ses noms d'entreprise et ses années.
-    topics = [topic(text) for text in asked[-2:] if not screen_tool_output(text)]
-    lines = [question]
-    if topics:
-        lines.append("Questions précédentes : " + " / ".join(topics))
-    lines.append("Entreprises et périodes reprises : " + ", ".join(kept_companies + kept_years))
-    enriched = "\n".join(lines)
-    return enriched if len(enriched.encode("utf-16-le")) // 2 <= QUERY_LIMIT else question
+    def model(self, stage, system, payload, schema):
+        @traced(stage, run_type="llm", stage=stage, ls_provider="google_genai", ls_model_name=os.environ.get("FOLIO_GEMINI_MODEL", ""))
+        def call(system, payload, schema):
+            self.last_usage = None
+            if "model" in HANDLERS:
+                return HANDLERS["model"](system, payload, schema, stage)
+            if os.environ.get("FOLIO_MODEL_BRIDGE") != "1":
+                raise WorkerError("MISSING_KEY")
+            self._models += 1
+            if self._models > 2:
+                raise WorkerError("BUDGET_EXHAUSTED")
+            request_id = "model-" + str(self._models)
+            emit("model", id=request_id, operation="generate", stage=stage, system=system, payload=payload, schema=schema)
+            try:
+                response = json.loads(sys.stdin.readline(1000000))
+                if response.get("id") != request_id or not isinstance(response.get("result"), dict):
+                    raise ValueError()
+            except (ValueError, TypeError):
+                raise WorkerError("INVALID_OUTPUT") from None
+            self.last_usage = response.get("usage")
+            annotate_usage(self.last_usage)
+            return response["result"]
+        return call(system, payload, schema)
 
 
 def run_chat(job):
-    """Chat : serveur → chercheur → vérificateur → serveur, chaque transfert signé et vérifié."""
-    question = chat_question(job)
+    """Chat RAG documentaire : chaîne fixe et déterministe, sans agent (voir scripts/rag_pipeline.py)."""
+    return run_rag(job, ChatIO())
 
-    @traced("researcher", role="researcher")
-    def research():
-        open_handoff("researcher", job.get("envelope"), {"question": job["question"]})
-        event("researcher", "running", "retrieve_passages")
-        packet = retrieve(question)
-        claims = make_claims(question, packet, job.get("context", {}))
-        event("researcher", "completed", "retrieve_passages")
-        if not claims:
-            raise WorkerError("NO_EVIDENCE")
-        return handoff("researcher", "verifier", evidence_payload(claims, packet["passages"]), {"claims": claims, "passages": packet["passages"]})
-    @traced("verifier", role="verifier")
-    def check(state):
-        open_handoff("verifier", state.get("envelope"), evidence_payload(state["claims"], state["passages"]))
-        event("verifier", "running", "inspect_evidence")
-        approved = verify_claims(question, state["claims"], state["passages"])
-        event("verifier", "completed", "inspect_evidence")
-        return handoff("verifier", "server", {"claims": approved}, {"approved": approved})
-    approved = check(research())["approved"]
-    return {"claims": approved, "mode": "chat", "engine": "grounded_rag"}
+
+# Ticker de chaque entreprise du corpus pour les données de marché (MCP Yahoo Finance, via la passerelle du serveur).
+TICKER_OF = {"Amazon": "AMZN", "Apple": "AAPL", "Google": "GOOGL", "Meta": "META"}
+_tool_counter = 0
+
+
+def request_market(ticker, dataset="stock_info"):
+    """Outil du chercheur : la passerelle MCP du serveur applique sa liste blanche, filtre et réduit la réponse."""
+    global _tool_counter
+    POLICY.authorize_tool("researcher", "market_data", {"ticker": ticker, "dataset": dataset})
+    if "tool" in HANDLERS:
+        packet = HANDLERS["tool"]("market_data", {"ticker": ticker, "dataset": dataset})
+    else:
+        _tool_counter += 1
+        if _tool_counter > 4:
+            raise WorkerError("AGENT_FAILURE")
+        request_id = "tool-" + str(_tool_counter)
+        emit("tool", id=request_id, agent="researcher", tool="market_data", args={"ticker": ticker, "dataset": dataset})
+        try:
+            data = json.loads(sys.stdin.readline(1000000))
+            if data.get("id") != request_id or not isinstance(data.get("packet"), dict):
+                raise ValueError()
+            packet = data["packet"]
+        except (ValueError, TypeError):
+            raise WorkerError("AGENT_FAILURE") from None
+    if not isinstance(packet, dict):
+        raise WorkerError("AGENT_FAILURE")
+    # Les données de marché restent des données non fiables : même contrôle que les passages des rapports.
+    return guard_tool_output({**packet, "passages": [p for p in packet.get("passages", []) if isinstance(p, dict) and p.get("source") == "yahoo_finance_mcp"]})
+
+
+def market_tickers(raw, question):
+    """Tickers proposés par le planificateur : gardés seulement s'ils sont autorisés ET nommés dans le thème."""
+    proposed = [t for t in raw if isinstance(t, str)] if isinstance(raw, list) else []
+    named = {TICKER_OF[c] for c in companies_in(question)}
+    kept = [t for t in dict.fromkeys(proposed) if t in MARKET_TICKERS and t in named][:4]
+    ignored = len(proposed) - len(kept)
+    if ignored or (raw is not None and not isinstance(raw, list)):
+        security("market_tickers_ignored", agent="planner", decision="blocked", reason="outside_allowlist_or_theme", count=max(ignored, 1))
+    return kept
 
 
 def build_graph(context=None):
@@ -429,6 +448,7 @@ def build_graph(context=None):
     class ResearchState(TypedDict, total=False):
         question: str
         axes: list
+        market: list
         claims: list
         passages: list
         approved: list
@@ -438,22 +458,30 @@ def build_graph(context=None):
     def planner(state):
         open_handoff("planner", state.get("envelope"), {"question": state["question"]})
         event("planner", "running", "delegate_task")
-        schema = {"type": "OBJECT", "properties": {"axes": {"type": "ARRAY", "items": {"type": "STRING"}}}, "required": ["axes"]}
-        data = request_model("Plan a documentary analysis in French. Return one to three short research axes grounded in the user's question. Use one axis for a question about a single metric, even when comparing several companies. Add axes only for independent topics. Keep all named companies and fiscal periods in each relevant axis; do not create one axis per company. No tools or private reasoning.", {"question": state["question"]}, schema, "planner")
+        schema = {"type": "OBJECT", "properties": {"axes": {"type": "ARRAY", "items": {"type": "STRING"}},
+                  "marketTickers": {"type": "ARRAY", "items": {"type": "STRING"}}}, "required": ["axes"]}
+        data = request_model("Plan a documentary analysis in French. Return one to three short research axes grounded in the user's question. Use one axis for a question about a single metric, even when comparing several companies. Add axes only for independent topics. Keep all named companies and fiscal periods in each relevant axis; do not create one axis per company. In marketTickers, list the stock tickers (AMZN, AAPL, GOOGL, META) of the companies named in the question only when current market data (price, market capitalisation, valuation) would usefully complement the annual reports; otherwise return an empty list. No tools or private reasoning.", {"question": state["question"]}, schema, "planner")
         axes = data.get("axes", [])
         if not isinstance(axes, list) or not 1 <= len(axes) <= 3 or any(not isinstance(x, str) or not x.strip() or len(x) > 240 for x in axes):
             raise WorkerError("INVALID_OUTPUT")
         for axis in axes:
             POLICY.authorize_tool("planner", "delegate_task", {"target": "researcher", "task": axis}, depth=1)
+        market = market_tickers(data.get("marketTickers"), state["question"])
         event("planner", "completed", "delegate_task")
-        return handoff("planner", "researcher", {"axes": axes}, {"axes": axes})
+        return handoff("planner", "researcher", {"axes": axes, "market": market}, {"axes": axes, "market": market})
     @traced("researcher", role="researcher")
     def researcher(state):
-        open_handoff("researcher", state.get("envelope"), {"axes": state["axes"]})
+        open_handoff("researcher", state.get("envelope"), {"axes": state["axes"], "market": state.get("market", [])})
         event("researcher", "running", "retrieve_passages")
         claims, passages = [], {}
+        # Données de marché (MCP) : une fois par ticker, avant le premier axe ; elles complètent chaque axe comme données non fiables.
+        market_passages = []
+        for ticker in state.get("market", []):
+            event("researcher", "running", "market_data")
+            market_passages.extend(request_market(ticker).get("passages", []))
         for axis in state["axes"]:
             packet = retrieve(state["question"][:3400] + "\nAxe : " + axis)
+            packet = {**packet, "passages": packet.get("passages", []) + market_passages}
             for passage in packet.get("passages", []):
                 passages[passage["id"]] = passage
             claims.extend(make_claims(state["question"], packet, context, axis))
@@ -515,14 +543,18 @@ def trace_context(job):
 
 
 def prewarm():
-    """Worker de réserve : charge les bibliothèques avant de recevoir le job (aucun état d'exécution n'est créé)."""
+    """Worker de réserve : charge LangGraph pour les résumés en arrière-plan, sans retarder un chat RAG (qui n'en a pas besoin)."""
     if os.environ.get("FOLIO_PREWARM") != "1":
         return
-    try:
-        import langgraph.graph  # noqa: F401
-        middleware_call()
-    except Exception:
-        pass
+    import threading
+
+    def load():
+        try:
+            import langgraph.graph  # noqa: F401
+            middleware_call()
+        except Exception:
+            pass
+    threading.Thread(target=load, daemon=True).start()
 
 
 def main():
@@ -550,7 +582,7 @@ if __name__ == "__main__":
     code = 0
     try:
         emit("result", result=main())
-    except WorkerError as error:
+    except (WorkerError, PipelineError) as error:
         emit("error", code=error.code)
         code = 1
     except SecurityError as error:

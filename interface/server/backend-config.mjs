@@ -23,5 +23,7 @@ export async function loadBackendConfig({projectRoot,storageDirectory,env=proces
     provider:simulated?'simulated':'gemini',simulated,simulatedDelayMs:delay===undefined?350:Math.min(delay,10000),
     model:simulated?'simulated':model,environmentFile,qdrantUrl:read('QDRANT_URL')||'http://127.0.0.1:6333',timeoutMs:180000,tracing,
     prewarm:read('FOLIO_PREWARM')!=='0',
+    // MCP Yahoo Finance des résumés : actif si le serveur est installé (FOLIO_MCP=off le coupe) ; chemin explicite par FOLIO_MCP_COMMAND.
+    mcp:{enabled:read('FOLIO_MCP')!=='off',command:read('FOLIO_MCP_COMMAND')||null},
     priceOverride:{input:positive(read('FOLIO_PRICE_INPUT_PER_MTOK')),output:positive(read('FOLIO_PRICE_OUTPUT_PER_MTOK'))}};
 }

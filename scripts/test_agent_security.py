@@ -162,35 +162,62 @@ class StateAndOutputTests(unittest.TestCase):
         imported |= {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module}
         for forbidden in ("subprocess", "shutil", "scripts.file_tools", "scripts.rag_tools", "scripts.yahoo_mcp", "socket"):
             self.assertNotIn(forbidden, imported)
-        self.assertEqual(set().union(*sec.ROLE_TOOLS.values()), {"delegate_task", "retrieve_passages", "inspect_evidence", "compose_summary"})
+        # market_data n'ouvre aucun accès réseau dans le worker : la requête part vers la passerelle MCP du serveur Node.
+        self.assertEqual(set().union(*sec.ROLE_TOOLS.values()), {"delegate_task", "retrieve_passages", "market_data", "inspect_evidence", "compose_summary"})
+        self.assertEqual({role for role, tools in sec.ROLE_TOOLS.items() if "market_data" in tools}, {"researcher"})
+        policy = sec.Policy()
+        for args in ({"ticker": "MSFT", "dataset": "stock_info"}, {"ticker": "META", "dataset": "options"}, {"ticker": "META", "dataset": "stock_info", "url": "x"}):
+            with self.assertRaises(sec.SecurityError):
+                policy.authorize_tool("researcher", "market_data", args)
+        with self.assertRaises(sec.SecurityError):
+            policy.authorize_tool("writer", "market_data", {"ticker": "META", "dataset": "stock_info"})
+        policy.authorize_tool("researcher", "market_data", {"ticker": "META", "dataset": "stock_info"})
+        rag_tree = ast.parse(Path(worker.__file__).with_name("rag_pipeline.py").read_text(encoding="utf-8"))
+        rag_imports = {node.module for node in ast.walk(rag_tree) if isinstance(node, ast.ImportFrom) and node.module} | {alias.name for node in ast.walk(rag_tree) if isinstance(node, ast.Import) for alias in node.names}
+        self.assertFalse({name for name in rag_imports if name.split(".")[0] in ("langchain", "langgraph", "langchain_core", "urllib", "socket", "subprocess")}, "le chat RAG n'utilise ni agent ni réseau")
 
 
 class SignedWorkerTests(unittest.TestCase):
     PASSAGE = {"id": "p1", "text": "Reported revenue was $100 million in 2024.", "year": "2024"}
     CLAIM = {"claim": "Le revenu publié est de 100 millions de dollars.", "evidenceId": "p1", "quote": "Reported revenue was $100 million in 2024.", "sourceYear": "2024"}
 
-    def test_chat_handoffs_are_signed_and_tampering_is_detected(self):
-        job = {"mode": "chat", "question": "Revenus 2024 ?", "policy": {"runId": "run-1"}, "envelopeKey": KEY,
-               "envelope": opening(question="Revenus 2024 ?"), "context": {}}
+    def test_summary_handoffs_are_signed_and_tampering_is_detected(self):
+        """Les transferts signés restent ceux des agents des résumés thématiques (le chat RAG n'a plus d'agent)."""
+        job = {"mode": "thematic", "question": "Revenus 2024 ?", "policy": {"runId": "run-1"}, "envelopeKey": KEY,
+               "envelope": opening(to="planner", question="Revenus 2024 ?"), "context": {}}
         worker.configure(job)
         self.assertNotIn("envelopeKey", job)
         handoffs = []
         def capture(packet_type, **values):
             if packet_type == "handoff":
                 handoffs.append(values["envelope"])
+        replies = [{"axes": ["Revenus"]}, {"claims": [dict(self.CLAIM)]}, {"approvedIndices": [0]}, {"selectedIndices": [0]}]
         with patch.object(worker, "emit", side_effect=capture), patch.object(worker, "retrieve", return_value={"passages": [self.PASSAGE]}), \
-             patch.object(worker, "request_model", side_effect=[{"claims": [dict(self.CLAIM)]}, {"approvedIndices": [0]}]):
-            result = worker.run_chat(job)
-        self.assertEqual([(h["from_role"], h["to_role"]) for h in handoffs], [("researcher", "verifier"), ("verifier", "server")])
+             patch.object(worker, "request_model", side_effect=replies):
+            result = worker.run_agents(job)
+        self.assertEqual([(h["from_role"], h["to_role"]) for h in handoffs], [("planner", "researcher"), ("researcher", "verifier"), ("verifier", "writer"), ("writer", "server")])
         self.assertEqual(handoffs[-1]["payload_hash"], sec.payload_hash({"claims": result["claims"]}))
         # Un état modifié entre deux agents est refusé par le destinataire.
         worker.configure({**job, "envelopeKey": KEY})
         with patch.object(worker, "emit"), patch.object(worker, "retrieve", return_value={"passages": [self.PASSAGE]}), \
-             patch.object(worker, "request_model", return_value={"claims": [dict(self.CLAIM)]}), \
+             patch.object(worker, "request_model", side_effect=[{"axes": ["Revenus"]}, {"claims": [dict(self.CLAIM)]}]), \
              patch.object(worker, "evidence_payload", side_effect=[{"claims": "A"}, {"claims": "B"}]):
             with self.assertRaises(sec.SecurityError) as caught:
-                worker.run_chat(job)
+                worker.run_agents(job)
         self.assertEqual(caught.exception.reason, "payload_mismatch")
+        worker.configure({})
+
+    def test_chat_job_carries_no_signing_key_and_emits_no_handoff(self):
+        job = {"mode": "chat", "question": "Revenus 2024 ?", "policy": {"runId": "run-2"}, "context": {}, "canary": "FOLIO-CANARY-0011223344556677"}
+        worker.configure(job)
+        packets = []
+        with patch.dict(worker.HANDLERS, {"retrieve": lambda query: {"passages": [self.PASSAGE]},
+                                          "model": lambda system, payload, schema, stage: {"answerable": True, "claims": [dict(self.CLAIM)]}}, clear=True), \
+             patch.object(worker, "emit", side_effect=lambda packet_type, **values: packets.append(packet_type)):
+            result = worker.run_chat(job)
+        self.assertEqual(result["engine"], "deterministic_rag")
+        self.assertNotIn("handoff", packets)
+        self.assertNotIn("event", packets)
         worker.configure({})
 
 
