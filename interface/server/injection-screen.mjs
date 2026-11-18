@@ -9,10 +9,14 @@ const INVISIBLE=/[­͏؜ᅟᅠ឴឵᠎​-‏‪-‮⁠-⁯ㅤ︀-️﻿ﾠ]|\u
 const CONFUSABLES={'а':'a','е':'e','о':'o','р':'p','с':'c','у':'y','х':'x','і':'i','ј':'j','ѕ':'s','ԁ':'d','ɡ':'g','ν':'v','ο':'o','α':'a','ε':'e','ι':'i','κ':'k','τ':'t','υ':'u','ρ':'p','В':'b','Н':'h','К':'k','М':'m','Т':'t'};
 const LEET={'0':'o','1':'i','3':'e','4':'a','5':'s','7':'t','@':'a','$':'s','!':'i','|':'l'};
 
+// Homoglyphes remplacés avant ET après la mise en minuscules (une capitale cyrillique « І » devient « i »).
+const unconfuse=text=>text.replace(/./gu,ch=>CONFUSABLES[ch]||ch);
 export function normalizeUntrusted(text){
-  return String(text).normalize('NFKC').replace(INVISIBLE,'').replace(/./gu,ch=>CONFUSABLES[ch]||ch)
-    .normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ');
+  return unconfuse(unconfuse(String(text).normalize('NFKC').replace(INVISIBLE,'')).toLowerCase())
+    .normalize('NFD').replace(/[̀-ًͯ-ٰٟ]/g,'').toLowerCase().replace(/\s+/g,' ');
 }
+// Les règles en cyrillique passent par la même normalisation que le texte (homoglyphes, puis diacritiques retirés : « й » → « и »).
+const cyr=source=>new RegExp(unconfuse(source).normalize('NFD').replace(/[̀-ͯ]/g,''),'s');
 const deleet=text=>text.replace(/[013457@$!|]/g,ch=>LEET[ch]).replace(/(?<=\w)[._*-](?=\w)/g,'');
 
 // Segments encodés : base64, hexadécimal, %xx et \uXXXX, décodés seulement s'ils donnent du texte lisible.
@@ -26,14 +30,37 @@ export function decodedSegments(text){
 }
 
 const RULES=[
-  ['instruction_override',/(?:ignore|disregard|forget|override|bypass|oublie|ignore[rz]?|ignorez|ne tiens pas compte|ignora|olvida|ignoriere|vergiss|ignorar|esquece)\b.{0,80}\b(?:previous|prior|above|earlier|system|developer|instructions?|rules?|guidelines?|consignes?|instructions? precedentes?|regles?|instrucciones|anweisungen|regeln|istruzioni|instrucoes)/s],
+  // « Ignorer les règles » ne suffit pas (« ignorer les règles du DMA » est une vraie question) : il faut viser les consignes
+  // de l'assistant (instructions, consignes) ou des règles qualifiées (précédentes, système, tes, your…).
+  ['instruction_override',/\b(?:ignore|disregard|forget|override|bypass|oublie|ignorer|ignorez|ne (?:tiens|tenez) (?:pas|plus) compte|ignora|olvida|ignoriere|vergiss|ignorar|esquece)\b.{0,80}?(?:\b(?:previous|prior|above|earlier|system|developer|initial|preceding|all|any|your|tes|vos|ta|ton|votre|toutes?|precedentes?|anterieures?|initiales?)\b(?:\s+\S+){0,2}?\s+(?:instructions?|rules|guidelines|consignes?|regles|directives?|prompts?|instrucciones|anweisungen|regeln|istruzioni|instrucoes)\b|\b(?:instructions?|consignes?|instrucciones|anweisungen|istruzioni|instrucoes)\b|\b(?:rules|regles|guidelines|directives)\s+(?:precedentes?|anterieures?|initiales?|previous|above|du systeme|of the system)\b)|\b(?:ignore|disregard|forget|oublie)\w*\s+(?:everything|all|tout)\s+(?:(?:that|ce qui|ce que)\s+)?(?:above|before|ci-dessus|precede\w*)\b/s],
   ['instruction_override',/(?:new|updated|nouvelles?|nuevas?|neue)\s+(?:system\s+)?(?:instructions?|consignes?|instrucciones|anweisungen)\s*[:：]/],
-  ['role_spoofing',/<\/?(?:system|developer|assistant|tool)>|\[\/?(?:inst|system)\]|<\|im_(?:start|end)\|>|(?:^|\s)(?:system|developer)\s*(?:prompt|message)?\s*[:：]\s*(?:you|tu|vous|du)\b|\byou are now\b|\btu es (?:desormais|maintenant)\b|\bvous etes (?:desormais|maintenant)\b|\bact as (?:an?|the) (?:admin|developer|system)/],
-  ['secret_exfiltration',/(?:send|upload|transmit|post|leak|share|email|envoie|envoyer|transmets|divulgue|revele|reveal|print|affiche|show|montre|exfiltrat)\w*.{0,100}(?:api.?key|secret|token|password|mot de passe|cle(?: d.acces| api)|credential|identifiant|cookie|system prompt|prompt systeme|\.env)/s],
+  ['role_spoofing',/<\/?(?:system|developer|assistant|tool)>|\[\/?(?:inst|system)\]|<\|im_(?:start|end)\|>|(?:^|\s)(?:system|developer)\s*(?:prompt|message)?\s*[:：]\s*(?:you|tu|vous|du)\b|\byou are now\b|\btu es (?:desormais|maintenant)\b|\bvous etes (?:desormais|maintenant)\b|\bact as (?:an?|the) (?:admin|administrator|developer|system)\b|\b(?:agis|agissez|comporte-toi|reponds) (?:comme|en tant que) (?:un |une |l.|le )?(?:admin\w*|developpeur|super-?utilisateur|root|systeme)\b|\bmode (?:admin\w*|root|maintenance)\b/],
+  // Bornes de mots : « shares » n'est pas « share », « Secretary » n'est pas « secret » (faux positifs mesurés sur les 10-Q de Google).
+  ['secret_exfiltration',/\b(?:send|sends|sending|upload\w*|transmit\w*|post|leak\w*|share|email|envoie\w*|envoyer|transmets|divulgue\w*|revele\w*|reveal\w*|print|affiche\w*|show|montre\w*|exfiltrat\w*)\b.{0,100}(?:api.?key|\bsecrets?\b|\btokens?\b|password|mot de passe|cle(?: d.acces| api)|credentials?\b|identifiants?\b|cookies?\b|system prompt|prompt systeme|\.env\b)/s],
   ['tool_execution',/(?:run|execute|exec|lance|lancer|executer?|call|appelle|invoke)\w*.{0,60}(?:subprocess|powershell|bash|shell|terminal|cmd\.exe|curl\s|wget\s|os\.system|eval\(|rm -rf|delegate_task|retrieve_passages|compose_summary)/s],
   ['url_exfiltration',/!\[[^\]]{0,80}\]\(\s*https?:\/\/|https?:\/\/[^\s)]+[?&][a-z_]{1,20}=\{|(?:visit|ouvre|open|charge|load|fetch|navigate to|rends-toi sur)\s+https?:\/\//],
-  ['memory_poisoning',/(?:remember|retiens|souviens-toi|memorise|from now on|a partir de maintenant|desormais|always|toujours)\b.{0,60}\b(?:answer|reponds|repondre|say|dire|recommend|recommander?|tell|dis)\b.{0,30}\b(?:that|que|qu|buy|achat|acheter|sell|vendre)\b/s],
+  // « Toujours » seulement en tête de phrase (impératif) : « Does Apple always say that… » est une vraie question.
+  ['memory_poisoning',/(?:\b(?:remember|retiens|souviens-toi|memorise|from now on|a partir de maintenant|desormais)\b.{0,60}|(?:^|[.!?:;]\s*)(?:always|toujours)\s+)\b(?:answer|reponds|repondre|reponde|say|dire|recommend|recommander?|recommande|tell|dis)\b.{0,30}\b(?:that|que|qu|buy|achat|acheter|sell|vendre)\b/s],
   ['hidden_instruction',/<!--[^>]{0,400}(?:instruction|ignore|assistant|system|prompt|reponds|answer)[^>]{0,400}-->|display\s*:\s*none|font-size\s*:\s*0|color\s*:\s*(?:#fff(?:fff)?|white)\b.{0,40}(?:instruction|ignore|assistant)/s],
+  // Jailbreak : persona sans limites, « mode développeur », jeu de rôle détourné, grand-mère, hypothèse de contournement.
+  ['jailbreak',/\bdo anything now\b|\b(?:you are|tu es|vous etes|act as|play|joue)\s+(?:now\s+)?dan\b|\bdan\s+(?:mode|prompt)\b|\bjailbreak|\b(?:developer|dev|god|debug|unrestricted|unfiltered|unlocked)\s+mode\b|\bmode\s+(?:developpeur|dieu|debug|sans (?:filtre|restriction|limite|censure)s?|non (?:filtre|censure))|\b(?:answer\w*|respond\w*|reply|replies|talk|behave|reponds|repondre|repondez|parle\w*|agis|agissez|comporte-toi|ecris|ecrivez)\b.{0,40}\b(?:without|sans|with no|no)\s+(?:any\s+|aucune?\s+)?(?:restrictions?|limits?|limites?|filtres?|filters?|censure|censorship|rules|regles|garde-fous|guardrails)\b|(?:pretend|fais semblant|faites semblant|imagine que tu es|imagine you are|joue le role|roleplay as|role-play as|act as if)\b.{0,80}\b(?:no rules|sans regles|aucune regle|unrestricted|without (?:rules|restrictions|limits)|evil|malveillant|pirate|hacker|dan)\b|(?:my|ma) (?:grandma|grandmother|grand-?mere)\b.{0,120}\b(?:keys?|cles?|password|mot de passe|instructions?|prompt|secrets?)\b|\bhypothetic\w*\b.{0,80}\b(?:ignore|bypass|contourn\w*|reveal|revele\w*|no rules|sans regles)/s],
+  // Extraction des consignes du modèle.
+  ['system_prompt_extraction',/\b(?:system|initial|hidden|original|secret)\s+(?:prompt|instructions)\b|\bprompt (?:systeme|initial|cache|secret)\b|\binstructions? (?:initiales?|systeme|cachees?|d.origine|secretes?)\b|\b(?:repeat|print|show|reveal|display|output|dump|write|repete\w*|affiche\w*|montre\w*|revele\w*|recopie\w*|ecri\w*)\b\s+(?:me\s+|moi\s+|-moi\s+)?(?:everything|all|tout|toutes?|the (?:text|words|lines|content)|le texte|les (?:lignes|mots)|what (?:is|was)|ce qui)\b.{0,30}?\b(?:above|ci-dessus|before this|avant ce message|precede\w*|plus haut)\b|\b(?:recopie\w*|repete\w*|repeat|affiche\w*|montre\w*|donne\w*|traduis\w*|translate|resume\w*|summari[sz]e|ecri\w*|write|cite\w*|liste\w*|list|reveal|revele\w*|print|show|output|dump|give)\b(?:\s+\S+){0,3}?\s+(?:ton|ta|tes|vos|votre|your)\s+(?:prompt|instructions?|consignes?|regles|directives?|system message|message systeme|jeton)\b|\b(?:your|tes|vos|ta|votre) (?:rules|instructions|consignes|regles|prompt|directives)\b.{0,40}\b(?:verbatim|mot pour mot|exactly|exactement|en entier|in full)\b|\bwhat (?:are|were) your (?:instructions|rules|directives)\b|\bquelles sont (?:tes|vos) (?:instructions|regles|consignes|directives)\b|\bjeton confidentiel\b|\bconfidential token\b|folio-canary/s],
+  // Demande directe d'un secret (clé d'API, mot de passe, fichier .env).
+  // « What is Google's policy on passwords » est une vraie question : « quel est / what is » ne vise que des clés nommées.
+  ['secret_request',/\b(?:give|tell|share|provide|donne\w*|dis|dites|fournis\w*|communique\w*)\b.{0,40}(?:api.?key|cle (?:d.)?api|cle d.acces|access key|secret key|mot de passe|password|bearer token|jeton d.acces|\.env\b|credentials|identifiants de connexion|google_api_key|langsmith_api_key)|\b(?:what is|what's|quel(?:le)? est)\b.{0,20}?\b(?:your|the|ton|ta|votre|la|le|l)\s+(?:\w+\s+){0,2}?(?:api.?key|cle (?:d.)?api|access key|secret key|bearer token|google_api_key|langsmith_api_key|\.env\b)/s],
+  // Envoi vers une adresse externe (URL, courriel, webhook) ou image Markdown distante.
+  ['exfiltration_request',/\b(?:send|envoie|envoyez|envoyer|upload|transmets|transmettez|transfere|transferez|exfiltrat\w*)\b.{0,80}(?:https?:\/\/|www\.|\b[\w.+-]+@[\w-]+\.[a-z]{2,}\b|webhook|\bto (?:this|my|the following) (?:url|server|endpoint|address|email)|a (?:cette|mon|l.adresse|l.url) (?:adresse|url|serveur|courriel))/s],
+  // Formes chinoises, arabes et russes de « ignore les instructions précédentes » et des demandes de secret.
+  ['instruction_override',/(?:忽略|无视|忽视|不要理会|别管|不理会).{0,12}(?:指令|指示|规则|说明|提示|要求)|(?:之前|以上|上面|先前|前面)的(?:所有)?(?:指令|指示|规则)|تجاهل.{0,40}(?:التعليمات|الاوامر|القواعد|التوجيهات|الارشادات)|(?:انس|إنس).{0,30}(?:التعليمات|الاوامر)/s],
+  ['instruction_override',cyr('(?:игнорируй|игнорируйте|проигнорируй|забудь|забудьте|не обращай внимания).{0,60}(?:инструкци|правил|указани|предыдущ)')],
+  ['system_prompt_extraction',/系统提示|系统指令|(?:موجه|تعليمات|توجيهات) النظام/],
+  // Consignes qui visent le contrôle lui-même (« les vérifications sont optionnelles », « ne plus citer les pages »).
+  ['process_override',/\b(?:verifications?|controles?|citations?|sources?|references?)\b.{0,30}\b(?:sont|est|deviennent|devient|are|is|become)\s+(?:desormais\s+|now\s+)?(?:optionnel(?:le)?s?|facultati(?:f|ve)s?|inutiles?|optional|unnecessary|not required)\b|\bne (?:plus|jamais|pas) (?:citer|verifier|controler|mentionner|indiquer) (?:les |la |le )?(?:pages?|sources?|citations?|references?|verifications?)\b|\b(?:stop|skip|disable|do not|don't) (?:citing|verifying|checking|quoting) (?:the |any )?(?:pages?|sources?|citations?|evidence)\b/s],
+  // Annonce d'une consigne découpée en plusieurs messages ou notes (« la partie 2 de mes consignes suit »).
+  // « la partie 2 de mes consignes » oui ; « la partie 2 du 10-K et ses règles fiscales » non.
+  ['fragmented_instruction',/\b(?:partie|part|morceau|fragment|piece)\s*\d+\s+(?:de|of|des|du)\s+(?:mes|my|tes|your|vos|ces|these|the|la)\s+(?:consignes?|instructions?|regles|rules)\b|\b(?:mes|my|tes|your|vos)\s+(?:consignes?|instructions?|regles|rules)\b.{0,30}\b(?:partie|part|morceau|fragment)\s*\d+\b/s],
+  ['secret_request',/(?:泄露|透露|显示|告诉我|给我).{0,12}(?:密钥|密码|系统提示|令牌)|(?:اكشف|اظهر|اعطني|اعطيني|ارسل).{0,40}(?:المفتاح|كلمة المرور|كلمة السر|مفتاح)/s],
 ];
 
 export function ruleSignals(text){
