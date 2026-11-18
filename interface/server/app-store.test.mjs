@@ -11,8 +11,9 @@ async function fixture(t,legacy=[]){
   for(const folder of ['data/rag-data/markdown/meta','data/rag-data/markdown/google','data/rag-data/pdfs/meta'])await fs.mkdir(path.join(projectRoot,folder),{recursive:true});
   await fs.writeFile(path.join(projectRoot,'data/rag-data/markdown/meta/meta 10-k 2024.md'),'# Meta 2024\n\nDocument financier local.');
   await fs.writeFile(path.join(projectRoot,'data/rag-data/markdown/google/google 10-k 2024.md'),'# Google 2024\n\nDocument financier local.');
-  await fs.writeFile(path.join(projectRoot,'data/rag-data/pdfs/meta/meta 10-k 2024.pdf'),'%PDF-1.4\nfixture');
-  await fs.writeFile(path.join(projectRoot,'data/rag-data/pdfs/meta/meta 10-q q2 2025.pdf'),'%PDF-1.4\nfixture');
+  // Contenus distincts : deux fichiers identiques seraient traités comme un doublon (contrôle d'intégrité du corpus).
+  await fs.writeFile(path.join(projectRoot,'data/rag-data/pdfs/meta/meta 10-k 2024.pdf'),'%PDF-1.4\nfixture 10-K 2024');
+  await fs.writeFile(path.join(projectRoot,'data/rag-data/pdfs/meta/meta 10-q q2 2025.pdf'),'%PDF-1.4\nfixture 10-Q T2 2025');
   await fs.mkdir(storageDirectory,{recursive:true});await fs.writeFile(path.join(storageDirectory,'missions.json'),JSON.stringify(legacy));
   const config={projectRoot,storageDirectory},store=await createAppStore(config);
   t.after(async()=>{await store.close();assert.ok(path.resolve(directory).startsWith(path.resolve(os.tmpdir())+path.sep));await fs.rm(directory,{recursive:true,force:true});});return {store,config,storageDirectory};

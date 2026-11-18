@@ -1,0 +1,293 @@
+{
+ "version": 1,
+ "algorithm": "sha256",
+ "generatedAt": "2026-11-18T19:28:24.773Z",
+ "source": "Rapports publics SEC (10-K, 10-Q, 8-K)",
+ "files": [
+  {
+   "path": "markdown/amazon/amazon 10-k 2023 copy.md",
+   "sha256": "fc7817c1b8473b2619bedf24fd8a094d9dbd638ee28546bc9f779937efbfcd1a",
+   "bytes": 410342
+  },
+  {
+   "path": "markdown/amazon/amazon 10-k 2023.md",
+   "sha256": "fc7817c1b8473b2619bedf24fd8a094d9dbd638ee28546bc9f779937efbfcd1a",
+   "bytes": 410342
+  },
+  {
+   "path": "markdown/amazon/amazon 10-k 2024.md",
+   "sha256": "ce8d6dfc5a54ad4d5344524e3cf3a443b4923de8b05bee6a82a4cf0944b00e25",
+   "bytes": 398900
+  },
+  {
+   "path": "markdown/amazon/amazon 10-q q1 2024.md",
+   "sha256": "7bccb2d89e8bc8ab131c89d99ab64dc7d123673ca90dc623dabc9991817e2d38",
+   "bytes": 228194
+  },
+  {
+   "path": "markdown/amazon/amazon 10-q q1 2025.md",
+   "sha256": "57a1ea5dd98f9aecfae708689287a42bf58c44d7e9c4d211c265ba849669deb6",
+   "bytes": 225380
+  },
+  {
+   "path": "markdown/amazon/amazon 10-q q2 2024.md",
+   "sha256": "79ac9d18ed13a34138c888392ab401b3a26d75713c477b5f6183727de89d290c",
+   "bytes": 248151
+  },
+  {
+   "path": "markdown/amazon/amazon 10-q q2 2025.md",
+   "sha256": "163c4a103f962204b704221d1791cd9937af1fa67b8446d5975e5591193f7033",
+   "bytes": 243262
+  },
+  {
+   "path": "markdown/amazon/amazon 10-q q3 2024.md",
+   "sha256": "e006a1e5a72d1e670cd0cbec7bc792bf5e316fa337a0a13b20d8c74ec151b0a7",
+   "bytes": 569214
+  },
+  {
+   "path": "markdown/apple/apple 10-k 2023.md",
+   "sha256": "16f716dcf2237c0e98562350ffd4b7c9ccf4c20209d782d51feeb19b42c1cf4b",
+   "bytes": 352178
+  },
+  {
+   "path": "markdown/apple/apple 10-k 2024.md",
+   "sha256": "e0eeac86b768f70becfad59196cb72b56fd0d5b3bd97667804677b9a9f55220d",
+   "bytes": 497279
+  },
+  {
+   "path": "markdown/apple/apple 10-q q1 2024.md",
+   "sha256": "ea1adf9d79bc011aea5d453064dcc24185926b07bc41d9779ab1314c3804021a",
+   "bytes": 109388
+  },
+  {
+   "path": "markdown/apple/apple 10-q q2 2024.md",
+   "sha256": "12634f554797a1ac4ef49f924788e7e31e33f330fd98031b322eacc07725cc4a",
+   "bytes": 109318
+  },
+  {
+   "path": "markdown/apple/apple 10-q q4 2023.md",
+   "sha256": "03607133a4e5716b19424d66300415447925a07b1f3c23f1bdc192e541d7e4e3",
+   "bytes": 102819
+  },
+  {
+   "path": "markdown/apple/apple 8-k q4 2023.md",
+   "sha256": "95e5b6266ef3d325d21625559d87201c5f08d87c8f08130b7f757145d3897d7e",
+   "bytes": 28871
+  },
+  {
+   "path": "markdown/google/google 10-k 2023.md",
+   "sha256": "e033e3f585f3738186ce679836e703e85410ffd4d980e3ec06957e44ee0a8dbd",
+   "bytes": 508353
+  },
+  {
+   "path": "markdown/google/google 10-k 2024.md",
+   "sha256": "ee1aa6f11ff46c3d00786dc3135ea7d8b466bc3f337dc6a0bbb504f86a45998f",
+   "bytes": 502116
+  },
+  {
+   "path": "markdown/google/google 10-q q1 2025.md",
+   "sha256": "f44f9370f2958c12ef216b30f22c6b5417de3b1a45820d5c73ea1dcd165c9ddf",
+   "bytes": 246698
+  },
+  {
+   "path": "markdown/google/google 10-q q2 2024.md",
+   "sha256": "668828b531cb13d3fe20eb909e3295d7d312fdc6e8ac759112055c034459d763",
+   "bytes": 284847
+  },
+  {
+   "path": "markdown/google/google 10-q q2 2025.md",
+   "sha256": "bbc0aad17a3e2842e4e5d3eea283f6df1c2a184b7d8cd922b93299af42b5f133",
+   "bytes": 311821
+  },
+  {
+   "path": "markdown/google/google 10-q q3 2024.md",
+   "sha256": "6461fae9304c4f229c0450919191f8c07771d4cd08a71b43662d28256d5cb2bd",
+   "bytes": 306300
+  },
+  {
+   "path": "markdown/meta/meta 10-k 2023.md",
+   "sha256": "814b4cab62817e452958450c1c80a2095bbb97eb4c7ae4a27a1e328408af7dc4",
+   "bytes": 652758
+  },
+  {
+   "path": "markdown/meta/meta 10-k 2024.md",
+   "sha256": "e9b44c0dac12b47a8dfb3abcc989a5143d37400787bf86bc6489ddd795637a85",
+   "bytes": 664065
+  },
+  {
+   "path": "markdown/meta/meta 10-q q1 2024.md",
+   "sha256": "cf4e4d8a8fa1cd10c878e790781d752ed5246a7af01fd17ce9e20b775d5c9e49",
+   "bytes": 18012
+  },
+  {
+   "path": "markdown/meta/meta 10-q q1 2025.md",
+   "sha256": "a8231789528e2904832c5ddfdc78ca35268def1072f0fa14bac76445d372597c",
+   "bytes": 17842
+  },
+  {
+   "path": "markdown/meta/meta 10-q q2 2024.md",
+   "sha256": "54798c595b55f7854f6e7082e83a12760484a7b04a0e64af1a80ef9692d2d69d",
+   "bytes": 18298
+  },
+  {
+   "path": "markdown/meta/meta 10-q q2 2025.md",
+   "sha256": "2d59ba791cffe1d20a92b14384eca781a8572f903dc3a74b275fc4c63e52163c",
+   "bytes": 17947
+  },
+  {
+   "path": "markdown/meta/meta 10-q q3 2024.md",
+   "sha256": "3e76f3ae15e7fda4382408229b66fcaae3c07f389962818a8cf4a84d4dfec86c",
+   "bytes": 18297
+  },
+  {
+   "path": "markdown/meta/meta 10-q q3 2025.md",
+   "sha256": "0fe690b84ec32e7882bd818575f8efd99e07ab5b1a1e40c3823fc077203d8ddc",
+   "bytes": 19266
+  },
+  {
+   "path": "markdown/meta/meta 10-q q4 2024.md",
+   "sha256": "6265726368cc8a9c3e484e96c49f7afd94974465e24cced6f04676e81bf32660",
+   "bytes": 17804
+  },
+  {
+   "path": "pdfs/amazon/amazon 10-k 2023.pdf",
+   "sha256": "6e5549c7b20b0fbc5f482397070a1e85cbf8643c801ff570903f52366b11154f",
+   "bytes": 800598
+  },
+  {
+   "path": "pdfs/amazon/amazon 10-k 2024.pdf",
+   "sha256": "5b582c59f1d1fa81d5112c9e0b9aa87afdbc9f42418daace257bc360e0f61ef7",
+   "bytes": 754569
+  },
+  {
+   "path": "pdfs/amazon/amazon 10-q q1 2024.pdf",
+   "sha256": "c08079bc14250c896f3ca151f9a72ecc1ddcb9ca8e5b021539e91af10fae5c4b",
+   "bytes": 489645
+  },
+  {
+   "path": "pdfs/amazon/amazon 10-q q1 2025.pdf",
+   "sha256": "a06e0bf6d1ba3aac6b82958c381af08b4d476677484170264f6ae8d64fc4fe67",
+   "bytes": 486296
+  },
+  {
+   "path": "pdfs/amazon/amazon 10-q q2 2024.pdf",
+   "sha256": "552615e47708aa125f69140f69d6bbd4c45f99981e4ed384f2d727d0665da8a8",
+   "bytes": 509320
+  },
+  {
+   "path": "pdfs/amazon/amazon 10-q q2 2025.pdf",
+   "sha256": "d960b7dd1f39d4e544ed45b8d034b74452cf6fd6e7dc9b630739e7941e775bbe",
+   "bytes": 508966
+  },
+  {
+   "path": "pdfs/amazon/amazon 10-q q3 2024.pdf",
+   "sha256": "3f24e07aadeef2a3d0f40febf932f3d75d9e679b51b2bdfb47c66a606e589691",
+   "bytes": 1167021
+  },
+  {
+   "path": "pdfs/apple/apple 10-k 2023.pdf",
+   "sha256": "068176ab665682096a79859d73b805c7b2fda05331e503f26d893b582353464e",
+   "bytes": 807316
+  },
+  {
+   "path": "pdfs/apple/apple 10-k 2024.pdf",
+   "sha256": "ec74758cd767465362c641cf2fd5d8fedd477aed2bf7f62117e67610435dcb88",
+   "bytes": 1093835
+  },
+  {
+   "path": "pdfs/apple/apple 10-q q1 2024.pdf",
+   "sha256": "b19b1f176c5ceaf9e6ea52907013480eb17716962351f8fdfe0ad4b13bb33ed0",
+   "bytes": 280756
+  },
+  {
+   "path": "pdfs/apple/apple 10-q q2 2024.pdf",
+   "sha256": "d65c0203458ef4ddd5d80f55e6c65a99280c7439b792be3b592459f4abaf7da7",
+   "bytes": 333438
+  },
+  {
+   "path": "pdfs/apple/apple 10-q q4 2023.pdf",
+   "sha256": "60258a17806063663ac83b5fb5422d22bec255cfecbec842c5039e08992e6a46",
+   "bytes": 271801
+  },
+  {
+   "path": "pdfs/apple/apple 8-k q4 2023.pdf",
+   "sha256": "bfb57cd34d8c3d9f650b54f4914d712f7d88d57aa7b374886e23101da3228356",
+   "bytes": 101359
+  },
+  {
+   "path": "pdfs/google/google 10-k 2023.pdf",
+   "sha256": "1dceed8775b7b56432618aff917e08f9fe9573921f397a79b14bad5ab31e469a",
+   "bytes": 1371793
+  },
+  {
+   "path": "pdfs/google/google 10-k 2024.pdf",
+   "sha256": "46106605128d8b0dfc668e25b7cc70bdfc68e87fa8ba5d7aad8b0456665d3db9",
+   "bytes": 1340363
+  },
+  {
+   "path": "pdfs/google/google 10-q q1 2025.pdf",
+   "sha256": "2c84425b68ab497014a25423984b2b8edc62c5de9a0b32abc605d92814408df7",
+   "bytes": 463672
+  },
+  {
+   "path": "pdfs/google/google 10-q q2 2024.pdf",
+   "sha256": "c2e9e49341c71edbe785ae4908a0b3ca21dbb57c76fba471f171803fd5889dc3",
+   "bytes": 510306
+  },
+  {
+   "path": "pdfs/google/google 10-q q2 2025.pdf",
+   "sha256": "78b0dbb103f6cf647752e56e8ecde7ac392d8e2b661296acfc6c9ca2f7e28c78",
+   "bytes": 525260
+  },
+  {
+   "path": "pdfs/google/google 10-q q3 2024.pdf",
+   "sha256": "51ab83179bff647b1b2521836748d83939671d40a1d954fad9df93cd720e5784",
+   "bytes": 520806
+  },
+  {
+   "path": "pdfs/meta/meta 10-k 2023.pdf",
+   "sha256": "e8fadc2448e4f99ad0ec2dc2e41d13b864204955238cf1f7cd9c96839f274a6c",
+   "bytes": 2481466
+  },
+  {
+   "path": "pdfs/meta/meta 10-k 2024.pdf",
+   "sha256": "be49f4b35fc1e04ef48562c4c93763d00f316d8002cf7adbe7fb6d3aff6d64b9",
+   "bytes": 2456817
+  },
+  {
+   "path": "pdfs/meta/meta 10-q q1 2024.pdf",
+   "sha256": "65dc078c21a40cec20a6d373edc8d73378201e07b1b392e4b01012cec5d22b3c",
+   "bytes": 245836
+  },
+  {
+   "path": "pdfs/meta/meta 10-q q1 2025.pdf",
+   "sha256": "f780ba164347650c81f3931d48acc7c8919ddcbd7ba5b7265c3c7929a2548b69",
+   "bytes": 234128
+  },
+  {
+   "path": "pdfs/meta/meta 10-q q2 2024.pdf",
+   "sha256": "0d87cfe645277a325fe1438b62262e93e2dd502f1854f5990b15ad8bb5d09b78",
+   "bytes": 152072
+  },
+  {
+   "path": "pdfs/meta/meta 10-q q2 2025.pdf",
+   "sha256": "51ac1ced331f22dccc834ba45dc42a796829f31aa35198a1150bd18cb0cb5a09",
+   "bytes": 233872
+  },
+  {
+   "path": "pdfs/meta/meta 10-q q3 2024.pdf",
+   "sha256": "ba5b97464d9a427fafde8351ed07f61b7b8e4e7183dc2d38604f893d4fd47671",
+   "bytes": 231906
+  },
+  {
+   "path": "pdfs/meta/meta 10-q q3 2025.pdf",
+   "sha256": "458ec526ed2ee00bc73fa25747d463445f36b754212fe142479ff2b991fea577",
+   "bytes": 238952
+  },
+  {
+   "path": "pdfs/meta/meta 10-q q4 2024.pdf",
+   "sha256": "c3fadc6934382d6a7655b0b0807f170da99e5b706b29439d48cd61febc9dbd2b",
+   "bytes": 233981
+  }
+ ]
+}

@@ -1,0 +1,17 @@
+{
+ "version": 1,
+ "reviewedAt": "2026-11-18",
+ "method": "Revue manuelle des fragments que le filtre d'ingestion écarte (node scripts/build-corpus-manifest.mjs --flagged). Les empreintes portent sur le texte ramené à des fins de ligne LF. Seule l'empreinte SHA-256 exacte du fragment est acceptée : le moindre changement de texte le soumet de nouveau au filtre.",
+ "chunks": [
+  {"sha256": "244c50d721ec381d20f4e6b3bdd2d6dee09ea2f9fd068a14e440f75d89412ac7", "document": "markdown/amazon/amazon 10-k 2024.md", "page": 77, "decision": "benign", "reason": "Signatures des administrateurs (Director)."},
+  {"sha256": "9f3f551b144bc386630d2e333a01010d37be600c3050cba1f90c89b450720b2d", "document": "markdown/amazon/amazon 10-k 2024.md", "page": 82, "decision": "benign", "reason": "Politique de négociation des titres : préautorisation des transactions."},
+  {"sha256": "514e44c7b084c233c4f3eb51717781194a8e19926715c6eb5ad805571d6e3c5c", "document": "markdown/amazon/amazon 10-q q3 2024.md", "page": 49, "decision": "benign", "reason": "En-tête d'une convention de crédit renouvelable (Citibank, agent administratif)."},
+  {"sha256": "bbe0f8a648097f2da89302c44bbd2c6d0adfd1f432cd2c13df4b23e538fb40b4", "document": "markdown/amazon/amazon 10-q q3 2024.md", "page": 65, "decision": "benign", "reason": "Définitions juridiques d'une convention de crédit (« Guarantee »)."},
+  {"sha256": "46b5854abbdb6ff29b44edee8f0ee91e8dcd06bd624533ce119c340defefdc61", "document": "markdown/amazon/amazon 10-q q3 2024.md", "page": 114, "decision": "benign", "reason": "Clause de survie d'une convention de crédit."},
+  {"sha256": "3a584d2b956de46ae7f2fc2728c1f81850994706dd5031764dec0eeaee186d83", "document": "markdown/apple/apple 10-k 2024.md", "page": 75, "decision": "benign", "reason": "Modèle d'avis d'attribution d'unités d'actions restreintes (même texte en page 91)."},
+  {"sha256": "81518a5844b55e02e4ebbde04c3d6a186a07ecadebc885fe9ffac9885454aa67", "document": "markdown/apple/apple 10-k 2024.md", "page": 82, "decision": "benign", "reason": "Modèle d'attribution de performance (même texte en page 99)."},
+  {"sha256": "ee11514f392d3974111bdae38ce68b8b881390eeb0f9e286ace74ad22af382bc", "document": "markdown/google/google 10-k 2023.md", "page": 6, "decision": "benign", "reason": "Présentation de l'IA chez Google (AlphaFold) : contenu métier utile."},
+  {"sha256": "3116b7829149fe116fd1e1356020e9f19a401a9116a129280220e170fc59ee50", "document": "markdown/google/google 10-k 2023.md", "page": 36, "decision": "benign", "reason": "Faits marquants 2023 (règle fiscale de l'IRS, rachats d'actions, effectifs) et début du tableau des revenus : contenu métier essentiel."},
+  {"sha256": "d2234c5a396a662247a5dd153560d46eef4e941dbeea555b5ea5d1adaaba2f01", "document": "markdown/meta/meta 10-k 2024.md", "page": 135, "decision": "benign", "reason": "Politique de préautorisation des transactions sur titres Meta."}
+ ]
+}
