@@ -1,7 +1,9 @@
 # Folio / Archive vivante — pile locale.
-#   docker compose up --build        puis http://localhost:8080
+#   docker compose up --build        puis http://localhost:8088
+# Port de l'hôte : 8088 par défaut (8080 est souvent pris par d'autres outils) ; FOLIO_PUBLIC_PORT pour en choisir un autre.
 # Seul le frontend est publié. Backend et Qdrant restent sur le réseau interne ;
-# le backend a en plus une sortie Internet pour Gemini et, si FOLIO_TRACING=on, LangSmith.
+# le backend a en plus une sortie Internet pour Gemini, Yahoo Finance (serveur MCP des résumés, HTTPS vers
+# query1/query2.finance.yahoo.com ; FOLIO_MCP=off le coupe) et, si FOLIO_TRACING=on, LangSmith.
 # Les clés sont lues dans le fichier .env de la racine, monté comme secret (jamais copié dans une image).
 
 name: folio
@@ -13,7 +15,7 @@ services:
       dockerfile: docker/frontend.Dockerfile
     image: folio-frontend:local
     ports:
-      - "127.0.0.1:${FOLIO_PUBLIC_PORT:-8080}:8080"
+      - "127.0.0.1:${FOLIO_PUBLIC_PORT:-8088}:8080"
     depends_on:
       backend:
         condition: service_healthy
@@ -37,6 +39,7 @@ services:
       FOLIO_LANGSMITH_PROJECT: ${FOLIO_LANGSMITH_PROJECT:-folio-dev}
       FOLIO_SECURE_COOKIES: ${FOLIO_SECURE_COOKIES:-0}
       FOLIO_TRUST_PROXY: "1"
+      FOLIO_MCP: ${FOLIO_MCP:-on}
       QDRANT_URL: http://qdrant:6333
     secrets:
       - folio_env

@@ -1,0 +1,4 @@
+# Serveur MCP Yahoo Finance des résumés thématiques (lecture seule, appelé par la passerelle du serveur Node).
+# Fichier verrouillé avec empreintes : uv pip compile docker/requirements-mcp.in --generate-hashes
+#   --python-platform x86_64-unknown-linux-gnu --python-version 3.12 -o docker/requirements-mcp.txt
+yahoo-finance-mcp-server==0.1.3

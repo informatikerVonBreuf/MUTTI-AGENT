@@ -10,7 +10,7 @@ import {check,sleep,fail} from 'k6';
 import {Trend,Counter} from 'k6/metrics';
 
 const BASE=__ENV.BASE_URL||'http://frontend:8080';
-const ORIGIN=__ENV.PUBLIC_ORIGIN||'http://localhost:8080';
+const ORIGIN=__ENV.PUBLIC_ORIGIN||'http://localhost:8088';
 const HOST=ORIGIN.replace(/^https?:\/\//,'');
 const EMAIL=__ENV.K6_EMAIL||'charge@example.test';
 const PASSWORD=__ENV.K6_PASSWORD||'Mot de passe de charge isolé 2026';

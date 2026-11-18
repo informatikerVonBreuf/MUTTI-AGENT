@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Frontend Folio : build Vite, puis fichiers statiques servis par nginx non root.
 # nginx relaie /api/ vers le backend sur le réseau interne et ajoute les en-têtes de sécurité.
 
