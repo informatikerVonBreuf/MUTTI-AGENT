@@ -32,7 +32,19 @@ Les cartes d’agents exposent la tâche, les permissions et le livrable attendu
 
 Chaque état s’explique avec des données réelles : état du modèle IA dans la barre supérieure et sur l’accueil, compteurs du corpus et de la mémoire, reprise des derniers échanges, dates relatives, étapes d’analyse avec leur durée réelle, passages consultés, sources numérotées avec page, titres de rapports lisibles (« Meta — 10-K 2024 »), filtres par type et par exercice, export Markdown des échanges, confirmation avant d’oublier un point de mémoire, compteur de caractères à l’approche des limites. Aucune progression n’est simulée.
 
-## Le chantier des agents (17 novembre 2026)
+## Le RAG en étapes (chat) et la page Sécurité (18 novembre 2026)
+
+Le chat n’a plus d’agent : le suivi d’une question montre « Le RAG documentaire, étape par étape », huit cartes numérotées avec le même style d’étiquettes-emojis que le chantier :
+- 🛂 filtre d’entrée, 🧭 préparation de la requête, 🔎 recherche, 🧪 contrôle des passages ;
+- ✍️ génération, ✅ contrôle de sortie, 🔁 correction ou abstention, 📄 réponse assemblée.
+
+Chaque carte porte son statut réel (⏳ en attente, ⚙️ en cours, ✅ terminée, 🚧 a bloqué, ➖ non nécessaire), sa durée et ses compteurs (passages trouvés et écartés, affirmations gardées et retirées avec leur motif, appels, coût). Une carte ne s’anime que sur un statut réel `running` ; `prefers-reduced-motion` et le bouton de pause arrêtent l’animation. Sous les cartes : « Affirmations retirées par les règles » (✂️) et les barrières de sécurité (🚧). Un refus du filtre d’entrée ou un rejet de sortie ouvre directement ce panneau. Les analyses du chat antérieures au 18 novembre gardent l’affichage de leur époque.
+
+La page **05 Sécurité** (réservée au propriétaire, absente de la navigation d’un sous-compte) présente : le trajet « Question → huit couches → Réponse citée », une carte par couche (ce qu’elle arrête, comment, compteurs réels), l’intégrité du corpus (manifeste, fichiers vérifiés et exclus, fragments écartés et faux positifs examinés), les deux campagnes d’attaques côte à côte (hors ligne et contre le vrai modèle, par catégorie et cas par cas avec la couche qui a arrêté chaque attaque), un bac à sable « Tester une attaque » (question, passage ou réponse du modèle, avec exemples) et les dernières décisions du journal d’audit. Aucun chiffre n’y est saisi à la main : tout vient des rapports et du serveur. La navigation passe à six entrées ; la barre d’onglets tient à 400 px.
+
+Les résumés thématiques gardent le chantier des agents ; la fiche du chercheur indique ses appels 📈 « Marché (MCP) », et les citations de marché s’affichent comme une source externe (Yahoo Finance, date de consultation), sans document à ouvrir.
+
+## Le chantier des agents (17 novembre 2026, résumés thématiques)
 
 Les agents sont présentés comme les ouvriers d’un chantier, avec de grandes étiquettes-emojis :
 - 📐 le planificateur, chef de chantier ;
@@ -42,7 +54,7 @@ Les agents sont présentés comme les ouvriers d’un chantier, avec de grandes 
 
 Entre deux ouvriers passe un 📦 « colis scellé » : c’est le transfert signé réel, avec son numéro et son contenu (plan, pierres brutes, pierres contrôlées, mur terminé). Les barrières de sécurité déclenchées apparaissent en 🚧. Un personnage ne s’anime qu’à la réception d’un événement réel « au travail » du worker. L’animation s’arrête avec `prefers-reduced-motion` ou le bouton de pause. Rien n’est rejoué ni simulé.
 
-Le chantier apparaît en direct dans le suivi d’une question (repliable une fois l’analyse terminée) et en entier dans la transparence des résumés thématiques. Chaque fiche d’ouvrier indique sa durée réelle, ses appels au modèle, ses tokens, son coût et son empreinte estimée.
+Le chantier apparaît en direct dans le suivi d’un résumé (repliable une fois l’analyse terminée) et en entier dans la transparence des résumés thématiques. Chaque fiche d’ouvrier indique sa durée réelle, ses appels au modèle, ses tokens, son coût et son empreinte estimée.
 
 ## Voir ce qui est consulté et ce que cela coûte
 
@@ -59,7 +71,7 @@ Le chantier apparaît en direct dans le suivi d’une question (repliable une fo
 - **Bibliothèque** : un « aperçu rapide » montre le début du rapport sans ouvrir le lecteur, et une ligne « consultés récemment » apparaît si les préférences locales sont acceptées.
 - **Export du rapport** : Word (.docx, généré dans le navigateur sans dépendance), PDF (impression du seul rapport, navigation et outils masqués) et Markdown.
 - **Visite guidée** en quatre étapes au premier lancement : bibliothèque, question, chantier, coût. On peut la passer ; elle se ferme avec Échap et ne revient pas une fois vue.
-- **Navigation** : cinq entrées. La barre d’onglets mobile utilise des libellés courts (« Chat », « Thèmes »).
+- **Navigation** : six entrées pour le propriétaire (Sécurité comprise), cinq pour un sous-compte. La barre d’onglets mobile utilise des libellés courts (« Chat », « Thèmes »).
 
 ## Scène de lecture
 

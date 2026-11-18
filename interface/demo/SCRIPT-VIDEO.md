@@ -1,5 +1,7 @@
 # Vidéo de démonstration — script, storyboard et tournage
 
+> **Note du 18 novembre 2026.** Cette vidéo montre la version du 17 novembre, où le chat passait encore par deux agents (chercheur et vérificateur). Depuis, le chat est un RAG en huit étapes fixes, sans agent, et l’application a une page Sécurité ; les résumés gardent leurs agents et utilisent MCP. Voir [ARCHITECTURE-RAG.md](../ARCHITECTURE-RAG.md). Les chapitres 2, 5 et 6 seraient à retourner.
+
 **Résultat : `demo/folio-demo.mp4`, 8 min 01 s, 1280 × 720, 21,7 Mo**, tournée le 17 novembre 2026. Le fichier n’est pas versionné (`.gitignore`) pour ne pas alourdir l’historique ; les scripts ci-dessous le régénèrent.
 
 L’enregistrement est automatisé avec Playwright (`recordVideo`) sur l’application réelle, avec le corpus réel et de vrais appels Gemini 3.8 Flash. Le compte est jetable et vit dans un dossier temporaire : aucune clé, aucune adresse personnelle ni aucun historique réel n’apparaît à l’écran. Le code de récupération et les codes d’invitation sont floutés par le script de tournage. Les titres de chapitre sont ajoutés avec ffmpeg, via Docker, sans installation locale.

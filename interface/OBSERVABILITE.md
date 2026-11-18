@@ -1,12 +1,20 @@
 # Observabilité, latence, coût et empreinte
 
-État du **17 novembre 2026**. Ce document décrit ce qui est réellement mesuré, comment, et ce qui reste une estimation.
+État du **18 novembre 2026**. Ce document décrit ce qui est réellement mesuré, comment, et ce qui reste une estimation.
+
+## Mise à jour du 18 novembre : chat RAG en étapes, MCP, démarrage du worker
+
+- **Chat (sans agent)** : chaque étape du RAG (`input_guard` … `answer`) a son statut, sa durée et ses compteurs dans `lastRun.stages` ; les appels modèle sont attribués à l’étape `generation` ou `correction` (`lastRun.usage.byStage`). La page **Mesures** affiche « Chat RAG : chaque étape » à côté des agents des résumés, et `/api/metrics` renvoie `runs.stages` (p50/p95/p99, blocages, appels, coût, empreinte). LangSmith reçoit une racine `folio_chat` et un span par étape (étiquette `stage:<nom>`), contenus toujours masqués.
+- **Résumés** : les appels MCP figurent dans `lastRun.toolCalls` (ticker, outil, statut, cache, durée).
+- **Démarrage du worker Python** : le module `truststore` (utilisé seulement pour un appel direct à Gemini, jamais par le serveur) était importé à chaque démarrage et coûtait ≈ 5 s sous Windows. Il est désormais chargé à la demande : import du worker 8,9 s → 0,57 s (mesure `python -X importtime`). Le worker de réserve charge LangGraph dans un fil d’arrière-plan pour ne pas retarder un chat. Avec le modèle simulé, les questions légitimes de la suite red team se terminent en 0,4 à 1,1 s, contre 15 à 17 s auparavant ; la toute première après une installation inclut la construction de l’index et le filtre d’ingestion (mis en cache ensuite).
+- **MCP Yahoo Finance** : démarrage du serveur 25 à 130 s selon le cache Windows (51 s dans le conteneur), puis 0,7 à 3 s par appel ; résultats gardés 15 minutes. Résumé réel avec MCP : 33 s, 5 appels Gemini, 0,0185 $.
 
 ## Ce que l’application mesure
 
 | Mesure | Source | Où la lire |
 | --- | --- | --- |
-| Durée de chaque étape d’agent | Événements `running`/`completed` émis par le worker Python | `lastRun.tasks[].durationMs` de chaque conversation |
+| Durée de chaque étape du chat RAG | Paquets `stage` du worker et étapes serveur (filtre d’entrée, réponse) | `lastRun.stages[].durationMs` |
+| Durée de chaque étape d’agent (résumés) | Événements `running`/`completed` émis par le worker Python | `lastRun.tasks[].durationMs` de chaque conversation |
 | Durée totale d’une analyse | Début et fin de l’exécution côté serveur | `lastRun.durationMs`, `/api/metrics` |
 | Tokens par appel modèle | `usageMetadata` renvoyé par Gemini (entrée, sortie, raisonnement, cache) | `lastRun.usage.byAgent`, `/api/metrics` |
 | Coût par agent et par analyse | Tokens × tarif officiel daté, raisonnement facturé en sortie | idem, en dollars US |

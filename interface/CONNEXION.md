@@ -81,7 +81,7 @@ Les préférences d’affichage (animations, visite guidée, rapports récents) 
 | `GET /api/auth/redirect` | Début du parcours Cognito si configuré |
 | `GET /api/auth/callback` | Retour Cognito, validation puis création de la session locale |
 
-Catalogue, textes, PDF, conversations, mémoire, état IA et lancement des agents exigent une session et renvoient HTTP 401 sans elle. `health`, les métadonnées publiques de connexion et ses parcours restent accessibles pour permettre de se connecter.
+Catalogue, textes, PDF, conversations, mémoire, état IA, lancement d’une analyse et page Sécurité exigent une session et renvoient HTTP 401 sans elle. `health`, les métadonnées publiques de connexion et ses parcours restent accessibles pour permettre de se connecter.
 
 ## Préparer Cognito sans changer les écrans métier
 

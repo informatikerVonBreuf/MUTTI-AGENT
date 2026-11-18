@@ -1,5 +1,39 @@
 # Rapport de validation — 17 novembre 2026
 
+## Mise à jour du 18 novembre 2026 — chat RAG sans agent, MCP, page Sécurité
+
+Le chat avec les documents est devenu un RAG déterministe en huit étapes, sans agent ; les résumés gardent leurs agents et utilisent MCP. Architecture : [ARCHITECTURE-RAG.md](ARCHITECTURE-RAG.md). Même machine que ci-dessous.
+
+| Domaine | Résultat |
+| --- | --- |
+| Tests Node (`npm test`) | 142 / 142 (garde-fous, intégrité du corpus, passerelle MCP avec faux serveur, connecteur à étapes, filtre d’entrée, cas de la revue) |
+| Tests Python (5 modules, dont `test_rag_pipeline`) | 68 tests : 67 réussis, 1 ignoré (lien symbolique refusé par Windows) |
+| Revue de sécurité indépendante | 9 défauts reproduits (2 élevés, 3 moyens, 4 faibles ou informatifs), tous corrigés et rejoués en test |
+| Rendu React (`test:ui`), build de production | réussis |
+| Contrôle HTTP réel (`check-rag-api.mjs`) | réussi : page Sécurité réservée au propriétaire, CSRF, schéma strict, 28 documents (doublon exclu), 0 fichier modifié ou non listé |
+| Pont Node ↔ Python réel (`check-agent-bridge.mjs`) | réussi : chat en étapes (1 appel, jeton témoin, aucun agent), sortie compromise arrêtée, résumé LangGraph signé avec l’outil MCP |
+| Validation métier hors ligne (notebook 13) | 6 / 6, 8 contrôles de sécurité réussis |
+| Red team hors ligne (après la revue) | 165 attaques, 0 réussie ; 170 cas légitimes, 0 faux positif ; 6 / 6 tâches légitimes ; 0 / 46 passages écartés à tort |
+| Red team contre Gemini 3.8 Flash (19 appels, avant la revue) | 59 attaques, 1 réussie (scénario dégradé, voir la note de sécurité) ; 7 / 8 questions légitimes, la 8ᵉ corrigée ensuite et rejouée avec succès |
+| Résumé réel avec MCP Yahoo Finance | terminé en 33 s, 5 appels (0,0185 $) : quatre agents, cinq transferts signés, une citation de marché (META) et deux du 10-K |
+| Navigateur (Edge, 1440 et 400 px) | 10 / 10 : page Sécurité (8 couches, corpus, rapports), bac à sable, chat en 8 étapes, refus d’une injection, 6 onglets sans débordement, aucune erreur JavaScript |
+| Image Docker du backend | construite ; worker et serveur MCP (9 outils) démarrent dans le conteneur en lecture seule, utilisateur non root |
+| Appels Gemini réels du lot | 59 sur 60 autorisés |
+
+**Défauts trouvés et corrigés pendant ce lot.**
+- Mesurés sur le corpus réel avant la mise en service du filtre d’ingestion : 14 fragments légitimes sur 6 029 auraient été écartés ; deux règles ont été resserrées et les fragments restants (12, soit 10 textes distincts), examinés un à un, sont gardés sur leur empreinte exacte.
+- Les empreintes du manifeste portaient sur les octets du poste Windows (fins de ligne CRLF ajoutées par Git) : sur un clone Linux ou dans un autre environnement, tous les rapports auraient été refusés comme « modifiés ». Elles portent désormais sur le texte ramené à LF (test dédié).
+- Le doublon « amazon 10-k 2023 copy.md » formait un 29ᵉ document ; il est exclu, la bibliothèque compte 28 rapports.
+- Le classifieur bloquait la relance « Et pour l’année précédente ? » (score 0,90) : il ne compte plus qu’à partir de 8 mots dans une question.
+- Le contrôle des montants prenait la date « 31 décembre 2024 » pour un montant : 2 questions légitimes sur 8 réussissaient avec Gemini, 7 après correction.
+- Une relance sans « annuel » trouvait les 10-Q au lieu du 10-K ; « premier trimestre » n’était pas compris comme un filtre de trimestre.
+- Le worker Python mettait 7 à 15 s à démarrer (import inutile de `truststore`) : 0,6 s désormais.
+- La directive `# syntax=docker/dockerfile:1` faisait échouer la construction (téléchargement du frontend BuildKit) ; le frontend intégré suffit.
+
+**Limites.** Pas de test sur un vrai téléphone ; la suite d’attaques n’est pas adaptative ; la campagne réelle compte 59 attaques et 8 questions, ce qui reste un échantillon ; la sortie du modèle n’est pas déterministe (l’attaque passée ne s’est pas reproduite au second essai) ; la vidéo du 17 novembre montre encore le chat à deux agents.
+
+---
+
 Validation de bout en bout des lots 1 à 3 : conteneurs et observabilité, sécurité agent-à-agent et comptes, interface. Elle est complétée par les défauts trouvés au tournage de la vidéo (lot 5). Machine : portable Windows 11, Docker Desktop (8 processeurs, 7,9 Go), avec d’autres piles Docker actives en parallèle, ce qui ralentit les builds et les imports Python. Les chiffres valent pour cette machine et ces jeux de données.
 
 ## Synthèse

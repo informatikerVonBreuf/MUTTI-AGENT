@@ -1,12 +1,12 @@
 # Backend local — RAG et résumés
 
-État du 17 novembre 2026. Node expose les API, conserve les historiques et contrôle la recherche. Python exécute les traitements ; Gemini produit les affirmations structurées. Aucun service AWS n’est créé.
+État du 18 novembre 2026. Node expose les API, conserve les historiques, vérifie le corpus et contrôle la recherche. Python exécute les traitements ; Gemini produit les affirmations structurées. Aucun service AWS n’est créé. L’architecture du chat et ses défenses sont détaillées dans [ARCHITECTURE-RAG.md](ARCHITECTURE-RAG.md).
 
 ## Parcours raccordés
 
-**Conversation** : question enregistrée → recherche automatique → affirmations appuyées sur les passages → contrôle des références et de la cohérence → réponse et citations enregistrées.
+**Conversation (RAG documentaire, sans agent)** : filtre d’entrée (Node) → préparation de la requête → recherche → contrôle des passages → **un** appel au modèle → contrôle de sortie → correction ou abstention (règles déterministes) → réponse assemblée par le serveur après un second contrôle. `scripts/rag_pipeline.py` exécute la chaîne (bibliothèque standard seulement) ; le worker émet un paquet `stage` par étape, jamais d’événement d’agent ni de transfert signé, et le serveur refuse tout paquet d’agent, de transfert ou d’outil dans un chat. Le job reçoit la question aux données personnelles masquées, un jeton témoin propre à la question, un budget de 2 appels, 1 recherche, 60 000 tokens, 0,05 $ et 120 s. L’historique ne sert qu’à compléter une relance ; il n’est jamais transmis au modèle.
 
-**Résumé thématique** : planificateur → chercheur sur un à trois axes → vérificateur → assemblage du résumé. `scripts/folio_worker.py` exécute réellement ces quatre nœuds avec LangGraph. Le dernier sélectionne, par indices, un sous-ensemble des affirmations admises afin de retirer les répétitions. Le serveur assemble ces affirmations sans accepter de nouvelle prose factuelle. Ce module reprend les rôles du projet dans une chaîne bornée ; il ne lance pas les outils génériques des anciens notebooks.
+**Résumé thématique** : planificateur → chercheur sur un à trois axes (avec données de marché MCP si le planificateur propose un ticker autorisé de l’entreprise du thème) → vérificateur → assemblage du résumé. `scripts/folio_worker.py` exécute réellement ces quatre nœuds avec LangGraph ; le chercheur demande `market_data` par un paquet `tool`, servi par la passerelle MCP du serveur (`server/mcp-gateway.mjs`). Le dernier sélectionne, par indices, un sous-ensemble des affirmations admises afin de retirer les répétitions. Le serveur assemble ces affirmations sans accepter de nouvelle prose factuelle. Ce module reprend les rôles du projet dans une chaîne bornée ; il ne lance pas les outils génériques des anciens notebooks.
 
 Le journal expose les étapes et leur état, jamais le raisonnement privé. Une interruption après redémarrage exige une relance explicite. Rejouer un message déjà terminé ne déclenche pas un nouvel appel.
 
@@ -20,11 +20,13 @@ Les rapports sont en anglais : un petit vocabulaire traduit les termes des quest
 - le sujet vient de la fin des deux dernières questions, d’où sont retirées l’entreprise et l’année remplacées ;
 - une question précédente qui contient une consigne suspecte ne prête que ses noms d’entreprise et ses années.
 
-La requête enrichie reste sous la borne de 4 000 caractères du serveur ; « ce que les agents ont consulté » l’affiche. « Chat PDF » depuis la bibliothèque restreint volontairement la recherche au rapport ouvert ; « Utiliser tout le corpus » retire cette restriction.
+La requête enrichie reste sous la borne de 4 000 caractères du serveur ; « les passages consultés » l’affichent. Une année sans trimestre (« en 2024 ») désigne l’exercice : le 10-K de cette année passe devant les 10-Q ; « premier trimestre », « 2e trimestre » ou « first quarter » filtrent comme T1, T2 ou Q1.
+
+**Corpus vérifié.** Seuls les rapports du manifeste `data/rag-data/manifest.json` (SHA-256) sont chargés, doublons exacts exclus, et le serveur refuse de démarrer sans manifeste. Chaque fragment passe le filtre d’injection avant l’indexation ; le résultat est mis en cache dans `.runtime/ingestion-screen.json` (≈ 20 s au premier démarrage, immédiat ensuite). Les faux positifs examinés sont gardés sur leur empreinte exacte (`data/rag-data/screen-review.json`). Un fichier modifié après le démarrage n’alimente plus aucune réponse, et son PDF n’est plus servi (`409 CORPUS_ALTERED`). « Chat PDF » depuis la bibliothèque restreint volontairement la recherche au rapport ouvert ; « Utiliser tout le corpus » retire cette restriction.
 
 **Qdrant n’est pas utilisé.** Le statut distingue sa joignabilité de son utilisation (`vector.used: false`). L’ancien serveur local n’était pas joignable lors du diagnostic. Les anciennes ressources Qdrant Cloud/AWS restent à retrouver.
 
-Une citation exige un identifiant connu, un extrait exactement présent et la bonne année du document. Si le modèle a seulement modifié les espaces ou retours à la ligne, le worker retrouve la portion originale du document ; chiffres, mots, signes et ponctuation ne sont jamais réécrits. Le contrôle exact côté Node reste obligatoire après cette restitution. Un second appel modèle contrôle l’appui de l’affirmation par le texte, les périodes et unités. Ce contrôle peut se tromper ; `truthVerified` reste faux. Une page n’est indiquée que si l’extraction en fournit les séparateurs.
+Une citation exige un identifiant connu, un extrait exactement présent et la bonne année du document. Si le modèle a seulement modifié les espaces ou retours à la ligne, le worker retrouve la portion originale du document ; chiffres, mots, signes et ponctuation ne sont jamais réécrits. Le contrôle exact côté Node reste obligatoire après cette restitution. Dans le chat, l’appui est contrôlé par des règles déterministes, sans second appel : citation de 12 caractères au moins, année du passage, montants présents dans la citation (une date n’est pas un montant), entreprise de la question ou du passage, ni lien, ni coordonnées, ni secret, ni balisage actif, ni consigne recopiée. Dans les résumés, le vérificateur (appel modèle) contrôle en plus l’appui par le texte, les périodes et unités. Ces contrôles peuvent se tromper ; `truthVerified` reste faux. Une page n’est indiquée que si l’extraction en fournit les séparateurs.
 
 ## Configuration privée
 
@@ -43,11 +45,11 @@ Pour réutiliser un fichier privé sans recopier ses secrets, créer localement 
 
 `FOLIO_DISABLE_AI=1` désactive le fournisseur pour les tests. `.runtime` et `.env` sont ignorés par Git. Aucun secret ne rejoint le bundle React, les conversations ou le statut public. Le coffre AWS reste à raccorder. Le lancement utilise les certificats du système (`--use-system-ca`) sans désactiver TLS.
 
-Autres variables : `FOLIO_PROVIDER` (`gemini` ou `simulated`), `FOLIO_TRACING=on` et `FOLIO_LANGSMITH_PROJECT` (traçage LangSmith), `FOLIO_PRICE_INPUT_PER_MTOK` et `FOLIO_PRICE_OUTPUT_PER_MTOK` (tarif négocié), `FOLIO_HOST` et `FOLIO_ALLOWED_HOSTS` (conteneur), `FOLIO_PREWARM=0` (désactive le worker de réserve), `FOLIO_MIDDLEWARE=off` (désactive le middleware LangChain, déconseillé), `FOLIO_DOCUMENT_ACL` (ACL documentaire par compte).
+Autres variables : `FOLIO_PROVIDER` (`gemini` ou `simulated`), `FOLIO_TRACING=on` et `FOLIO_LANGSMITH_PROJECT` (traçage LangSmith), `FOLIO_PRICE_INPUT_PER_MTOK` et `FOLIO_PRICE_OUTPUT_PER_MTOK` (tarif négocié), `FOLIO_HOST` et `FOLIO_ALLOWED_HOSTS` (conteneur), `FOLIO_PREWARM=0` (désactive le worker de réserve), `FOLIO_MIDDLEWARE=off` (désactive le middleware LangChain des résumés, déconseillé), `FOLIO_DOCUMENT_ACL` (ACL documentaire par compte), `FOLIO_MCP=off` (coupe le serveur MCP Yahoo Finance des résumés) et `FOLIO_MCP_COMMAND` (chemin explicite de `yahoo-finance-mcp-server`).
 
 ## Données et protections
 
-Gemini reçoit la question, les passages, les notes admises et jusqu’à huit messages récents. L’utilisateur doit autoriser ce fournisseur pour ses données. Les historiques sont conservés localement ; leur contexte est néanmoins transmis lors d’une analyse. LangSmith reste désactivé par défaut ; avec `FOLIO_TRACING=on`, seules la structure, les durées, les rôles et les tokens partent, contenus masqués.
+Pour une question, Gemini reçoit la question (données personnelles masquées), les passages et les notes admises, jamais l’historique ; pour un résumé, s’y ajoutent jusqu’à huit messages récents. Yahoo Finance ne reçoit que les symboles boursiers AMZN, AAPL, GOOGL ou META. L’utilisateur doit autoriser ce fournisseur pour ses données. Les historiques sont conservés localement ; leur contexte est néanmoins transmis lors d’une analyse. LangSmith reste désactivé par défaut ; avec `FOLIO_TRACING=on`, seules la structure, les durées, les rôles et les tokens partent, contenus masqués.
 
 Une seule analyse à la fois ; jusqu’à huit passages par recherche, 1 800 caractères chacun et 12 000 au total. Jusqu’à trois recherches pour un résumé, six appels modèle admis au maximum, 35 secondes par appel et 180 secondes par traitement. Les sorties sont bornées. Gemini 3 utilise `thinkingLevel: low` et un plafond de 4 096 tokens de sortie, raisonnement compris ; l’adaptateur conserve `thinkingBudget: 0` pour une configuration explicite Gemini 2.5. Le contrôle de présence du modèle ne suffit pas à prouver qu’une génération sera acceptée : les erreurs 404 et paramètres refusés sont distinguées, et un échec du fournisseur met son statut à jour. Arrêter coupe le worker et les requêtes en cours ; un appel déjà accepté peut rester facturé.
 
@@ -60,8 +62,10 @@ Passages et mémoires sont traités comme données non fiables. Des règles isol
 - `POST /api/threads/:id/run`, corps `{ "messageId": "…" }` : analyse asynchrone.
 - `GET /api/threads/:id/run` : dernières étapes et état.
 - `DELETE /api/threads/:id/run` : arrêt.
+- `GET /api/security/overview` (propriétaire) : couches du RAG avec compteurs réels, intégrité du corpus et filtre d’ingestion, rapports de la suite d’attaques, état MCP, dernières décisions de sécurité du journal d’audit.
+- `POST /api/security/sandbox` (propriétaire, CSRF, 20 par minute), corps `{ "mode": "question" | "passage" | "output", "text": "…", "passage"?: "…" }` : applique les vrais filtres, sans appel au modèle et sans rien enregistrer.
 
-L’interface suit les traitements par interrogation périodique. Messages, citations et dernière exécution sont dans `.runtime/conversations.json`. Supprimer un chat retire sa mémoire et ses liens.
+Le run d’un chat contient `pipeline: 'deterministic_rag'`, `stages[]` (statut, durée et compteurs de chaque étape), `rejectedClaims[]` (motifs, contrôle Python ou serveur) et `attempts` ; celui d’un résumé garde `tasks`, `events`, `handoffs` et ajoute `toolCalls[]` (appels MCP : ticker, outil, statut, cache, extrait). L’interface suit les traitements par interrogation périodique. Messages, citations et dernière exécution sont dans `.runtime/conversations.json`. Supprimer un chat retire sa mémoire et ses liens.
 
 ```powershell
 cd interface
@@ -72,7 +76,7 @@ node scripts/check-rag-api.mjs
 $env:FOLIO_TEST_PYTHON='C:/Python314/python.exe'
 node scripts/check-agent-bridge.mjs
 # Depuis la racine :
-C:/Python314/python.exe -m unittest scripts.test_folio_worker scripts.test_security_boundaries scripts.test_observability -v
+C:/Python314/python.exe -m unittest scripts.test_rag_pipeline scripts.test_folio_worker scripts.test_security_boundaries scripts.test_observability scripts.test_agent_security -v
 ```
 
 Ces tests utilisent un modèle simulé, sans appels facturés. Le pont lance réellement Python/LangGraph. Le rendu React statique ne remplace pas un test navigateur ou utilisateur. Les essais réels autorisés ont maintenant été effectués séparément ; leurs résultats sont ci-dessous.
