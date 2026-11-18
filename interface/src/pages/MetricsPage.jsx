@@ -4,6 +4,7 @@ import {api} from '../api.mjs';
 import {PageHeading} from '../components/PageChrome.jsx';
 import {plural} from '../format.mjs';
 import {CREW} from '../components/AgentWorksite.jsx';
+import {RAG_STEPS} from '../components/RagPipeline.jsx';
 import {formatCo2, formatMs, formatTokens, formatUsd, formatWater, formatWh, ledEquivalent, totalTokens} from '../measures.mjs';
 
 const KINDS = {chat: 'Questions (chat)', thematic: 'Résumés thématiques'};
@@ -30,9 +31,10 @@ export default function MetricsPage() {
   React.useEffect(() => { load(); }, [load]);
   const {data, loading, error} = state;
   const runs = data?.runs, totals = runs?.totals;
-  const agentMax = runs ? Math.max(...Object.values(runs.agents).map(agent => agent.duration.p95 || 0)) : 0;
+  const agentMax = runs ? Math.max(0, ...Object.values(runs.agents).map(agent => agent.duration.p95 || 0)) : 0;
+  const stages = runs?.stages || {}, stageMax = Math.max(0, ...Object.values(stages).map(stage => stage.duration?.p95 || 0));
   return <div className="page metrics-page">
-    <PageHeading number="04" title="Ce que coûte chaque réponse." emphasis="Et ce qu’elle pèse." description="Latences mesurées (p50, p95, p99), coût réel par agent et empreinte estimée de toutes les analyses enregistrées. Aucune valeur n’est simulée : un chiffre absent reste absent."/>
+    <PageHeading number="04" title="Ce que coûte chaque réponse." emphasis="Et ce qu’elle pèse." description="Latences mesurées (p50, p95, p99), coût réel par étape du RAG et par agent des résumés, empreinte estimée de toutes les analyses enregistrées. Aucune valeur n’est simulée : un chiffre absent reste absent."/>
     <div className="metrics-toolbar">
       <button type="button" className="button-secondary" onClick={load} disabled={loading}><RefreshCw size={14}/>{loading ? 'Actualisation…' : 'Actualiser'}</button>
       {data && <span>Mis à jour à {new Date(data.generatedAt).toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit', second: '2-digit'})}{runs.since ? ` · mesures depuis le ${new Date(runs.since).toLocaleDateString('fr-FR')}` : ''}</span>}
@@ -49,9 +51,19 @@ export default function MetricsPage() {
         <h2 id="metrics-latency"><Timer size={16}/>Durée des analyses complètes</h2>
         <ul className="metrics-rows">{Object.entries(runs.byKind).map(([kind, row]) => <li key={kind}><span>{KINDS[kind]}</span><Percentiles summary={row.duration}/></li>)}</ul>
       </section>
+      <section className="metrics-section" aria-labelledby="metrics-stages">
+        <h2 id="metrics-stages">Chat RAG : chaque étape (sans agent)</h2>
+        <ul className="metrics-agents">{RAG_STEPS.filter(step => stages[step.id]).map(step => {const stage = stages[step.id]; return <li key={step.id}>
+          <span className="sticker" role="img" aria-label={step.label}>{step.sticker}</span>
+          <strong>{step.label}</strong>
+          <Percentiles summary={stage.duration}/>
+          <Bar value={stage.duration.p95} max={stageMax}/>
+          <span className="metric-agent-usage">{stage.blocked ? `${plural(stage.blocked, 'blocage', 'blocages')} · ` : ''}{stage.calls ? `${plural(stage.calls, 'appel', 'appels')} · ${formatTokens(totalTokens(stage))} · ${formatUsd(stage.costUsd)} · ≈ ${formatWh(stage.energyWh)}` : 'aucun appel au modèle'}</span>
+        </li>;})}</ul>
+      </section>
       <section className="metrics-section" aria-labelledby="metrics-agents">
-        <h2 id="metrics-agents">Chaque agent : durée, appels, coût, empreinte</h2>
-        <ul className="metrics-agents">{Object.entries(runs.agents).map(([role, agent]) => <li key={role}>
+        <h2 id="metrics-agents">Résumés thématiques : chaque agent (durée, appels, coût, empreinte)</h2>
+        <ul className="metrics-agents">{Object.entries(runs.agents).filter(([role]) => CREW[role]).map(([role, agent]) => <li key={role}>
           <span className="sticker" role="img" aria-label={CREW[role].trade}>{CREW[role].sticker}</span>
           <strong>{CREW[role].name}</strong>
           <Percentiles summary={agent.duration}/>

@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {Check, ChevronRight, FileText, Gauge, Home, Library, LogOut, MessageSquare, Plus, RefreshCw, UserRound, X} from 'lucide-react';
+import {Check, ChevronRight, FileText, Gauge, Home, Library, LogOut, MessageSquare, Plus, RefreshCw, ShieldCheck, UserRound, X} from 'lucide-react';
 import {FolioMark} from './Identity.jsx';
 import {MotionControl, PageScenery} from './components/PageChrome.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
@@ -9,6 +9,7 @@ import ChatPage from './pages/ChatPage.jsx';
 import ThemesPage from './pages/ThemesPage.jsx';
 import AccountPage from './pages/AccountPage.jsx';
 import MetricsPage from './pages/MetricsPage.jsx';
+import SecurityPage from './pages/SecurityPage.jsx';
 import GuidedTour from './components/GuidedTour.jsx';
 import PrivacyPage, {PrivacyNotice} from './pages/PrivacyPage.jsx';
 import {readPreference, writePreference} from './preferences.mjs';
@@ -16,13 +17,14 @@ import {DeleteModal, DocumentModal, MemoryModal, RenameModal, ScopeModal, ThemeM
 import {api, json} from './api.mjs';
 import {backendSentence, backendShortLabels, backendState, pageLabels, plural} from './format.mjs';
 
-const PAGES = ['home', 'library', 'chat', 'themes', 'metrics', 'account', 'privacy'];
+const PAGES = ['home', 'library', 'chat', 'themes', 'metrics', 'security', 'account', 'privacy'];
 const NAVIGATION = [
   ['home', Home, 'Accueil', 'Accueil'],
   ['library', Library, 'Bibliothèque', 'Bibliothèque'],
   ['chat', MessageSquare, 'Conversations', 'Chat'],
   ['themes', FileText, 'Résumés thématiques', 'Thèmes'],
   ['metrics', Gauge, 'Mesures', 'Mesures'],
+  ['security', ShieldCheck, 'Sécurité', 'Sécurité'],
 ];
 const readPage = () => {
   if (typeof window === 'undefined') return 'home';
@@ -277,7 +279,7 @@ export default function App({onOpenLogin, onSignOut, accountLabel, accessMode = 
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); mainRef.current?.focus(); }}>Aller au contenu</a>
     <aside className="app-navigation" aria-label="Navigation principale">
       <a href="#home" className="app-brand" aria-label="Folio — accueil" onClick={event => { event.preventDefault(); navigate('home'); }}><FolioMark size={27}/><span aria-hidden="true">folio<span className="brand-dot">.</span><small>ARCHIVE VIVANTE</small></span></a>
-      <nav aria-label="Sections">{NAVIGATION.map(([id, Icon, label, short], index) => <button key={id} className={page === id ? 'active' : ''} aria-current={page === id ? 'page' : undefined} onClick={() => navigate(id)} title={label}>
+      <nav aria-label="Sections">{NAVIGATION.filter(([id]) => id !== 'security' || user?.role !== 'member').map(([id, Icon, label, short], index) => <button key={id} className={page === id ? 'active' : ''} aria-current={page === id ? 'page' : undefined} onClick={() => navigate(id)} title={label}>
         <span className="nav-index" aria-hidden="true">0{index}</span><Icon size={18} aria-hidden="true"/><span className="nav-label">{label}</span><span className="nav-short" aria-hidden="true">{short}</span>
         {activity[id] && <><i className="nav-activity" aria-hidden="true"/><span className="sr-only"> (analyse en cours)</span></>}
       </button>)}</nav>
@@ -308,6 +310,7 @@ export default function App({onOpenLogin, onSignOut, accountLabel, accessMode = 
             {page === 'library' && <LibraryPage workspace={workspace} view={libraryView} onViewChange={patch => setLibraryView(previous => ({...previous, ...patch}))} busy={busy} sending={sending} onOpenDocument={openDocument} onNewChat={newChat}/>}
             {page === 'chat' && <ChatPage threads={chats} thread={chat} busy={busy} sending={sending} panelProps={panelProps} onSelect={openThread} onCreate={() => newChat()} onDelete={askDelete} onClose={() => setChat(null)}/>}
             {page === 'metrics' && (user?.role === 'member' ? <p className="simple-empty">Les mesures globales de l’atelier sont réservées à son propriétaire.</p> : <MetricsPage/>)}
+            {page === 'security' && (user?.role === 'member' ? <p className="simple-empty">La page Sécurité de l’atelier est réservée à son propriétaire.</p> : <SecurityPage/>)}
             {page === 'account' && <AccountPage companies={companies} onPasswordChanged={onSessionRefresh}/>}
             {page === 'privacy' && <PrivacyPage onBack={() => navigate('home')}/>}
             {page === 'themes' && <ThemesPage themes={themes} chats={chats} session={themeSession} backend={backend} busy={busy} sending={sending} panelProps={panelProps} onOpenThread={openThread} onCloseSession={() => setThemeSession(null)} onNewTheme={newTheme} onDelete={askDelete}/>}

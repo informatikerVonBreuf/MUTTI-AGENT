@@ -1,7 +1,7 @@
 // Libellés, pluriels, dates et titres partagés par toute l’interface.
 // Ces fonctions ne lisent que des données réelles : elles ne fabriquent aucune valeur.
 
-export const pageLabels = {home: 'Accueil', library: 'Bibliothèque', chat: 'Conversations', themes: 'Résumés thématiques', metrics: 'Mesures', account: 'Mon compte', privacy: 'Confidentialité'};
+export const pageLabels = {home: 'Accueil', library: 'Bibliothèque', chat: 'Conversations', themes: 'Résumés thématiques', metrics: 'Mesures', security: 'Sécurité', account: 'Mon compte', privacy: 'Confidentialité'};
 export const noteLabels = {objectif: 'Objectif', preference: 'Préférence', decision: 'Décision', contrainte: 'Contrainte', retenu: 'Point retenu'};
 export const agentLabels = {planner: 'Planification', researcher: 'Recherche documentaire', verifier: 'Vérification des références', writer: 'Rédaction'};
 export const toolLabels = {delegate_task: 'Répartir une tâche', retrieve_passages: 'Rechercher dans le corpus autorisé', inspect_evidence: 'Inspecter les références', compose_summary: 'Composer un résumé'};

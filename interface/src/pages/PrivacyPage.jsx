@@ -36,8 +36,9 @@ export default function PrivacyPage({onBack}) {
       <ul className="privacy-list">
         <li><strong>Compte</strong> : adresse e-mail, mot de passe haché (scrypt), code de récupération haché, clé de double authentification si vous l’activez. Stockés sur le serveur de l’atelier, jamais dans le navigateur.</li>
         <li><strong>Conversations et mémoire</strong> : enregistrées sur le serveur de l’atelier jusqu’à leur suppression par vous. Supprimer une conversation retire aussi sa mémoire.</li>
-        <li><strong>Analyse par l’IA</strong> : lorsque vous lancez une question ou un résumé, la question, les passages retenus, vos points de mémoire admis et jusqu’à huit messages récents sont envoyés à <strong>Google Gemini</strong>. Les adresses e-mail, cartes bancaires et adresses IP y sont masquées automatiquement.</li>
-        <li><strong>Traces techniques</strong> : si l’administrateur active LangSmith, seuls la structure des étapes, les durées, les rôles, les tokens et des identifiants pseudonymes partent ; questions, passages et réponses sont masqués.</li>
+        <li><strong>Analyse par l’IA</strong> : pour une question, seuls la question (courriels, téléphones, IBAN et cartes masqués), les passages retenus et vos points de mémoire admis sont envoyés à <strong>Google Gemini</strong> ; l’historique de la conversation n’est pas transmis. Pour un résumé thématique, s’y ajoutent jusqu’à huit messages récents, avec les adresses e-mail, cartes bancaires et adresses IP masquées.</li>
+        <li><strong>Données de marché</strong> : pour un résumé, le serveur peut interroger Yahoo Finance (par MCP) avec les seuls symboles boursiers publics AMZN, AAPL, GOOGL ou META. Aucune question, aucun passage ni aucune donnée personnelle n’y est transmis.</li>
+        <li><strong>Traces techniques</strong> : si l’administrateur active LangSmith, seuls la structure des étapes, les durées, les étapes ou rôles, les tokens et des identifiants pseudonymes partent ; questions, passages et réponses sont masqués.</li>
         <li><strong>Journal d’audit</strong> : connexions, analyses et décisions de sécurité, avec une empreinte pseudonyme de l’utilisateur. Ni question, ni passage, ni mot de passe.</li>
         <li><strong>Mesures</strong> : durées, tokens, coût et empreinte estimée de chaque analyse, sans contenu.</li>
       </ul>

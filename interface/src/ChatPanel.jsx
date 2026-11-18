@@ -16,6 +16,12 @@ function Citations({citations, documents, onOpenDocument}) {
   return <div className="chat-sources">
     <p className="chat-sources-heading"><ShieldCheck size={13}/>{plural(citations.length, 'source contrôlée', 'sources contrôlées')} · extraits retrouvés mot pour mot</p>
     <ol className="chat-citations">{citations.map((citation, index) => {
+      // Donnée de marché (MCP Yahoo Finance) : source externe citée, sans document à ouvrir.
+      if (citation.source === 'market') return <li key={index} className="citation-market"><span className="citation-static">
+        <span className="citation-number">{index + 1}</span>
+        <span className="citation-text"><strong>{citation.title || 'Yahoo Finance (MCP)'}</strong><span className="citation-page">consulté le {citation.retrievedAt ? new Date(citation.retrievedAt).toLocaleDateString('fr-FR') : '—'}</span>
+          {citation.quote && <small className="citation-quote">« {citation.quote} »</small>}</span>
+      </span></li>;
       const doc = byId.get(citation.documentId);
       return <li key={index}><button type="button" onClick={() => onOpenDocument(citation.documentId, {page: citation.page, quote: citation.quote})} aria-label={`Ouvrir la source ${index + 1} : ${doc ? documentTitle(doc) : citation.title}${citation.page ? ', page ' + citation.page : ''}`}>
         <span className="citation-number">{index + 1}</span>
@@ -29,7 +35,7 @@ function Citations({citations, documents, onOpenDocument}) {
 // Indice d'appui documentaire : uniquement des faits vérifiables (citations exactes, sources distinctes).
 // Ce n'est pas une probabilité que la réponse soit vraie.
 function AnswerSupport({message}) {
-  const sources = new Set(message.citations.map(citation => citation.documentId)).size;
+  const sources = new Set(message.citations.map(citation => citation.documentId || 'market:' + citation.ticker)).size;
   const level = message.simulated ? ['simulated', 'Simulé'] : sources >= 2 ? ['strong', 'Appui croisé'] : ['simple', 'Appui unique'];
   return <p className={'answer-support support-' + level[0]} title="Indice d’appui documentaire, pas une probabilité de vérité.">
     <strong>{level[1]}</strong>

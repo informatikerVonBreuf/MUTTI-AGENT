@@ -12,6 +12,8 @@ import {createAuditLog} from './audit-log.mjs';
 import {createCsrfGuard,createRateLimiter,AI_LIMITS,IP_LIMITS,validateBody,SCHEMAS,SECURITY_HEADERS,cookieValue} from './request-guards.mjs';
 import {CLASSIFIER} from './injection-screen.mjs';
 import {createHumanCheck} from './human-check.mjs';
+import {createMcpGateway,findMcpCommand} from './mcp-gateway.mjs';
+import {securityOverview,sandbox} from './security-overview.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const development=process.argv.includes('--dev');
 const projectRoot=path.resolve(root,'..'),storageDirectory=process.env.FOLIO_DATA_DIR||path.join(root,'.runtime');
@@ -26,13 +28,16 @@ const auth=await createAuthService({storageDirectory,values:settings,ipOf});
 // ACL documentaire : entreprises autorisées d'un sous-compte, sinon règle statique FOLIO_DOCUMENT_ACL, sinon tout le corpus.
 const staticAcl=parseDocumentAcl(settings.FOLIO_DOCUMENT_ACL);
 const documentAcl=actor=>actor?.role==='member'?(auth.companiesFor(actor.id)||[]):staticAcl?(staticAcl[actor?.id]??staticAcl[actor?.email]??staticAcl['*']??null):null;
-const store=await createAppStore({projectRoot,storageDirectory,backendState:()=>connector?.status()||{connected:false,citationsEnabled:false},documentAcl});
+// Manifeste du corpus exigé : sans lui, le serveur refuse de démarrer (échec fermé face à un corpus non vérifié).
+const store=await createAppStore({projectRoot,storageDirectory,backendState:()=>connector?.status()||{connected:false,citationsEnabled:false},documentAcl,requireManifest:true});
 const human=await createHumanCheck({storageDirectory,enabled:settings.FOLIO_HUMAN_CHECK!=='off'});
 const metrics=await createMetricsLog({storageDirectory}),latency=createLatencyRecorder();
 const audit=await createAuditLog({storageDirectory});
 if(!audit.startupCheck.valid)console.error(`Journal d’audit rompu à la ligne ${audit.startupCheck.brokenAt} : vérifiez scripts/verify-audit.mjs.`);
 const csrf=await createCsrfGuard({storageDirectory,secure:settings.FOLIO_SECURE_COOKIES==='1'}),rateLimit=createRateLimiter();
-connector=await createAIConnector({store,config,metrics,audit});
+// Passerelle MCP des résumés thématiques : processus unique, démarré en arrière-plan (45 à 130 s sous Windows).
+const mcp=createMcpGateway({command:config.mcp.command||findMcpCommand(),storageDirectory,enabled:config.mcp.enabled&&!config.disabled});
+connector=await createAIConnector({store,config,metrics,audit,mcp});
 void connector.probe();
 // En conteneur, le serveur écoute sur le réseau interne ; les hôtes admis restent explicites.
 const allowedHosts=new Set(['127.0.0.1','localhost','[::1]',...(process.env.FOLIO_ALLOWED_HOSTS||'').split(',').map(host=>host.trim().toLowerCase()).filter(host=>/^[a-z0-9.-]{1,253}$/.test(host))]);
@@ -81,7 +86,7 @@ const server=createServer(async(request,response)=>{
         const decision=rateLimit('ip '+ip,IP_LIMITS.api);if(!decision.allowed){request.resume();return tooMany(response,decision);}
         if(authRoute){const strict=rateLimit('auth '+ip,IP_LIMITS.auth);if(!strict.allowed){request.resume();audited('security',{actor:'anonymous',decision:'blocked',reason:'rate_limited:auth'});return tooMany(response,strict,'Trop de tentatives de connexion.');}}
       }
-      if(request.method==='GET'&&url.pathname==='/api/health')return json(response,200,{status:'ok',version:'sessions-v7',backendConnected:connector.status().connected});
+      if(request.method==='GET'&&url.pathname==='/api/health')return json(response,200,{status:'ok',version:'rag-v8',backendConnected:connector.status().connected});
       if(request.method==='GET'&&url.pathname==='/api/auth/status')return json(response,200,{...auth.status(),humanCheck:human.enabled?'proof_of_work':'off'});
       if(request.method==='GET'&&url.pathname==='/api/auth/challenge')return json(response,200,human.issue());
       if(request.method==='GET'&&url.pathname==='/api/auth/session'){const session=auth.session(request);if(session.authenticated)response.setHeader('Set-Cookie',csrf.cookie(cookieValue(request,'folio_session')));return json(response,200,session);}
@@ -123,26 +128,36 @@ const server=createServer(async(request,response)=>{
         if(request.method==='PATCH'&&memberMatch[1]){const result=await auth.updateMember(actor,memberMatch[1],await body(request,SCHEMAS.memberUpdate));accountAudit(actor,'member_updated');return json(response,200,result);}
         if(request.method==='DELETE'&&memberMatch[1]){request.resume();const result=await auth.deleteMember(actor,memberMatch[1]);accountAudit(actor,'member_deleted');return json(response,200,result);}
       }
-      const ownerOnly=['/api/metrics','/api/audit/verify'].includes(url.pathname);
-      if(ownerOnly&&actor.role==='member'){request.resume();return json(response,403,{code:'FORBIDDEN',error:'Réservé au propriétaire de l’atelier.'});}
+      const ownerOnly=['/api/metrics','/api/audit/verify','/api/security/overview','/api/security/sandbox'].includes(url.pathname);
+      // Liste d'autorisation : le propriétaire local, ou l'unique compte Cognito admis (l'adresse du propriétaire, voir cognito-login.mjs).
+      const isOwner=actor.role==='owner'||(actor.provider==='cognito'&&!actor.role);
+      if(ownerOnly&&!isOwner){request.resume();return json(response,403,{code:'FORBIDDEN',error:'Réservé au propriétaire de l’atelier.'});}
       if(request.method==='GET'&&url.pathname==='/api/backend/status')return json(response,200,connector.status());
       if(request.method==='POST'&&url.pathname==='/api/backend/probe'){request.resume();return json(response,200,await connector.probe());}
       if(request.method==='GET'&&url.pathname==='/api/workspace')return json(response,200,store.overview(actor));
       if(request.method==='GET'&&url.pathname==='/api/metrics')return json(response,200,metricsReport());
       if(request.method==='GET'&&url.pathname==='/api/audit/verify'){const result=await audit.verify();return json(response,200,{...result,startup:audit.startupCheck,classifier:CLASSIFIER});}
+      // Page Sécurité : architecture par couche, intégrité du corpus, résultats des attaques, bac à sable déterministe.
+      if(request.method==='GET'&&url.pathname==='/api/security/overview')return json(response,200,await securityOverview({projectRoot,store,metricsReport,audit,mcp}));
+      if(request.method==='POST'&&url.pathname==='/api/security/sandbox')return json(response,200,sandbox(await body(request,SCHEMAS.sandbox)));
       const documentMatch=url.pathname.match(/^\/api\/documents\/([a-f0-9]{18})(?:\/(pdf))?$/);
       if(documentMatch&&request.method==='GET'){
         const doc=store.document(documentMatch[1]);if(!doc||!store.canReadDocument(doc.id,actor))return json(response,404,{error:'Document introuvable.'});
         if(documentMatch[2]==='pdf'){
           if(!doc.pdf)return json(response,404,{error:'Le PDF original n’est pas disponible.'});
-          const content=await fs.readFile(doc.pdf);response.writeHead(200,{'Content-Type':'application/pdf','Content-Length':content.length,'Content-Disposition':`${url.searchParams.has('download')?'attachment':'inline'}; filename="folio-${doc.id}.pdf"`,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'});return response.end(content);
+          // Intégrité : les octets envoyés sont ceux dont l'empreinte vient d'être vérifiée contre le manifeste.
+          const content=await store.readVerified(doc.id,'pdf');
+          if(!content)return json(response,409,{code:'CORPUS_ALTERED',error:'Ce rapport a été modifié depuis sa vérification : il n’est plus servi.'});response.writeHead(200,{'Content-Type':'application/pdf','Content-Length':content.length,'Content-Disposition':`${url.searchParams.has('download')?'attachment':'inline'}; filename="folio-${doc.id}.pdf"`,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'});return response.end(content);
         }
         if(url.searchParams.get('download')==='1'){
           if(!doc.text)return json(response,404,{error:'Texte extrait indisponible.'});
-          const content=await fs.readFile(doc.text,'utf8');
+          const bytes=await store.readVerified(doc.id,'text');
+          if(!bytes)return json(response,409,{code:'CORPUS_ALTERED',error:'Ce rapport a été modifié depuis sa vérification : il n’est plus servi.'});
+          const content=bytes.toString('utf8');
           response.writeHead(200,{'Content-Type':'text/markdown; charset=utf-8','Content-Disposition':`attachment; filename="folio-${doc.id}.md"`,'X-Content-Type-Options':'nosniff'});return response.end(content);
         }
         const payload=await store.documentPayload(doc.id);
+        if(!payload)return json(response,409,{code:'CORPUS_ALTERED',error:'Ce rapport a été modifié depuis sa vérification : il n’est plus servi.'});
         const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, max-age=300','ETag':payload.etag,'Vary':'Accept-Encoding','X-Content-Type-Options':'nosniff'};
         if(request.headers['if-none-match']===payload.etag){response.writeHead(304,headers);return response.end();}
         // Texte du rapport compressé une seule fois à la mise en cache : 4 à 5 fois moins d'octets à transmettre.
@@ -190,7 +205,7 @@ server.maxConnections=Number(settings.FOLIO_MAX_CONNECTIONS)||256;
 const port=Number(process.env.PORT||5173);
 server.on('error',error=>{console.error(error.code==='EADDRINUSE'?`Le port ${port} est déjà utilisé. Ouvrez http://127.0.0.1:${port} ou choisissez PORT.`:error.message);process.exitCode=1;});
 const host=process.env.FOLIO_HOST||'127.0.0.1';
-server.listen(port,host,()=>{console.log(`\n  Folio — http://${host==='0.0.0.0'?'127.0.0.1':host}:${server.address().port}\n  Bibliothèque · Conversations · Résumés thématiques\n`);store.warm().catch(()=>{});connector.prewarm();});
+server.listen(port,host,()=>{console.log(`\n  Folio — http://${host==='0.0.0.0'?'127.0.0.1':host}:${server.address().port}\n  Bibliothèque · Conversations · Résumés thématiques\n`);store.warm().then(()=>store.corpusReport()).then(report=>audited('security',{actor:'system',decision:report.summary.altered||report.summary.unlisted||report.summary.missing?'blocked':'allowed',reason:'corpus_verified',count:report.summary.verified})).catch(()=>{});connector.prewarm();void mcp.start();});
 let closing=false;
-async function close(){if(closing)return;closing=true;await connector.close();await metrics.close();await audit.close();await store.close();await auth.close();await vite?.close();server.close(()=>process.exit(0));server.closeIdleConnections();}
+async function close(){if(closing)return;closing=true;await mcp.close();await connector.close();await metrics.close();await audit.close();await store.close();await auth.close();await vite?.close();server.close(()=>process.exit(0));server.closeIdleConnections();}
 process.on('SIGINT',close);process.on('SIGTERM',close);

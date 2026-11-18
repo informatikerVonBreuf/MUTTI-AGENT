@@ -7,7 +7,7 @@ import {readPreference, writePreference} from '../preferences.mjs';
 const STEPS = [
   {sticker: '📚', title: 'La bibliothèque', page: 'library', text: 'Les rapports 10-K, 10-Q et 8-K de Meta, Google, Apple et Amazon, classés par entreprise, année et type. Un aperçu rapide permet de lire le début d’un rapport sans l’ouvrir.'},
   {sticker: '💬', title: 'Poser une question', page: 'chat', text: 'Écrivez votre question : la recherche dans le corpus est automatique. Chaque réponse cite mot pour mot ses sources, avec la page, ou s’abstient si les preuves manquent.'},
-  {sticker: '🏗️', title: 'Le chantier des agents', page: 'themes', text: 'Pour un résumé, quatre agents se passent le travail dans des colis scellés : planificateur, chercheur, vérificateur, rédacteur. Vous voyez qui travaille, ce qu’il consulte et les barrières de sécurité déclenchées.'},
+  {sticker: '🏗️', title: 'Étapes du RAG et chantier des agents', page: 'themes', text: 'Une question suit huit étapes fixes, sans agent, contrôlées par des règles. Un résumé, lui, mobilise quatre agents qui se passent le travail dans des colis scellés et peuvent consulter les données de marché (MCP). Dans les deux cas, vous voyez chaque étape, ce qui est consulté et les barrières de sécurité déclenchées.'},
   {sticker: '🌍', title: 'Ce que cela coûte', page: 'metrics', text: 'Chaque analyse affiche son coût réel, ses tokens et une estimation de son empreinte (énergie, CO₂e, eau). La page Mesures donne les latences p50, p95 et p99.'},
 ];
 

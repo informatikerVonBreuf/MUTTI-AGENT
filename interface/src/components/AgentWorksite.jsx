@@ -16,6 +16,7 @@ const ORDER = ['planner', 'researcher', 'verifier', 'writer'];
 const CARGO = {trusted_instruction: 'la commande', model_plan: 'le plan', untrusted_evidence: 'des pierres brutes', verified_evidence: 'des pierres contrôlées', verified_summary: 'le mur terminé'};
 const STATE = {pending: 'attend son tour', running: 'au travail', completed: 'a terminé', failed: 'à l’arrêt', cancelled: 'arrêté', interrupted: 'interrompu', not_used: 'pas mobilisé'};
 const STATE_STICKER = {pending: '⏳', running: '🔨', completed: '✅', failed: '⛔', cancelled: '⏹️', interrupted: '⏸️', not_used: '💤'};
+export const MARKET_STATUS = {ok: 'reçu', quarantined: 'écarté (instruction détectée)', unavailable: 'indisponible', denied: 'refusé', error: 'erreur du service'};
 
 function Sticker({symbol, label, className = ''}) {
   return <span className={'sticker ' + className} role="img" aria-label={label}>{symbol}</span>;
@@ -46,7 +47,7 @@ export function AgentWorksite({run}) {
       <Sticker symbol="🏗️" label="Chantier" className="worksite-emblem"/>
       <div>
         <span className="eyebrow">LE CHANTIER DES AGENTS</span>
-        <p>{run.kind === 'thematic' ? 'Quatre rôles se passent le travail dans des colis scellés : plan, pierres brutes, pierres contrôlées, mur.' : 'Question simple : le chercheur extrait les passages, le vérificateur les contrôle. Les autres rôles ne sont pas mobilisés.'}</p>
+        <p>{run.kind === 'thematic' ? 'Quatre rôles se passent le travail dans des colis scellés : plan, pierres brutes, pierres contrôlées, mur. Le chercheur peut compléter les rapports par des données de marché (MCP Yahoo Finance).' : 'Analyse antérieure aux étapes fixes du RAG : le chercheur extrayait les passages, le vérificateur les contrôlait.'}</p>
       </div>
     </header>
     {handoffs.some(item => item.from === 'server') && <p className="worksite-order"><Sticker symbol="📋" label="Commande"/>Commande du serveur scellée et vérifiée (n°{handoffs.find(item => item.from === 'server').seq}) : budgets et permissions fixés avant tout travail.</p>}
@@ -68,6 +69,7 @@ export function AgentWorksite({run}) {
           </p>
           <dl className="worker-facts">
             {role === 'researcher' && (run.retrievals || []).length > 0 && <div><dt>Consulte</dt><dd>{plural(passages, 'passage', 'passages')} · {plural(documents, 'rapport', 'rapports')}</dd></div>}
+            {role === 'researcher' && (run.toolCalls || []).length > 0 && <div><dt>Marché (MCP)</dt><dd>{run.toolCalls.map(call => `📈 ${call.ticker} · ${MARKET_STATUS[call.status] || call.status}${call.cached ? ' (cache)' : ''}`).join(' · ')}</dd></div>}
             {role === 'verifier' && run.status === 'completed' && <div><dt>Valide</dt><dd>{plural(run.verifiedClaimCount || 0, 'affirmation', 'affirmations')}</dd></div>}
             {usage?.calls > 0 && <div><dt>Modèle</dt><dd>{plural(usage.calls, 'appel', 'appels')} · {formatTokens(totalTokens(usage))}</dd></div>}
             {usage?.calls > 0 && !measures.simulated && <div><dt>Coût</dt><dd>{formatUsd(usage.costUsd)}</dd></div>}
@@ -85,13 +87,21 @@ export function AgentWorksite({run}) {
   </section>;
 }
 
-// Vue « ce que les agents consultent » : passages réellement récupérés, ouvrables à la bonne page.
+// Vue « ce qui a été consulté » : passages réellement récupérés, ouvrables à la bonne page, et données de marché (MCP).
 export function ConsultedSources({run, documents = [], onOpenDocument}) {
-  const retrievals = run?.retrievals || [];
-  if (!retrievals.length) return null;
+  const retrievals = run?.retrievals || [], market = run?.toolCalls || [];
+  if (!retrievals.length && !market.length) return null;
   const byId = new Map(documents.map(doc => [doc.id, doc]));
-  return <section className="consulted-sources" aria-label="Passages consultés par les agents">
-    <header><Search size={15}/><span className="eyebrow">CE QUE LES AGENTS ONT CONSULTÉ</span></header>
+  return <section className="consulted-sources" aria-label="Passages consultés">
+    <header><Search size={15}/><span className="eyebrow">{run.kind === 'thematic' ? 'CE QUE LES AGENTS ONT CONSULTÉ' : 'CE QUI A ÉTÉ CONSULTÉ'}</span></header>
+    {market.length > 0 && <div className="consulted-retrieval consulted-market">
+      <p className="consulted-query"><span>Données de marché</span>MCP Yahoo Finance, en lecture seule<small>{market.length} appel{market.length > 1 ? 's' : ''} · tickers du corpus seulement</small></p>
+      <ol className="consulted-passages">{market.map((call, index) => <li key={index}>
+        <div className="consulted-source"><span className="sticker" role="img" aria-label="Données de marché">📈</span><strong>{call.ticker}</strong><span>{call.mcpTool || call.dataset} · {MARKET_STATUS[call.status] || call.status}{call.cached ? ' (cache 15 min)' : ''}{Number.isFinite(call.durationMs) ? ' · ' + formatMs(call.durationMs) : ''}</span></div>
+        {call.passages?.map(passage => <blockquote key={passage.id}>{passage.excerpt}{passage.excerpt.length >= 280 ? '…' : ''}</blockquote>)}
+        {call.signals?.length > 0 && <p className="consulted-blocked">🚧 {call.signals.map(signal => signalLabels[signal] || signal).join(', ')}</p>}
+      </li>)}</ol>
+    </div>}
     {retrievals.map((retrieval, index) => <div className="consulted-retrieval" key={index}>
       <p className="consulted-query"><span>Recherche {index + 1}</span>« {retrieval.query.length > 140 ? retrieval.query.slice(0, 140) + '…' : retrieval.query} »<small>{plural(retrieval.passages.length, 'passage', 'passages')} · {formatMs(retrieval.durationMs)}{retrieval.quarantined ? ` · ${retrieval.quarantined} écarté${retrieval.quarantined > 1 ? 's' : ''}` : ''}</small></p>
       <ol className="consulted-passages">{retrieval.passages.map(passage => {

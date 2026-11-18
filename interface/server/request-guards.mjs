@@ -42,6 +42,7 @@ export const AI_LIMITS={
   'POST /api/backend/probe':{capacity:4,perMinute:2},
   'POST /api/threads/:id/rag-context':{capacity:20,perMinute:20},
   'POST /api/threads/:id/messages':{capacity:30,perMinute:30},
+  'POST /api/security/sandbox':{capacity:20,perMinute:20},
 };
 
 // Validation stricte : champs connus seulement, types et longueurs bornés.
@@ -73,6 +74,8 @@ export const SCHEMAS={
   empty:{},
   memberCreate:{email:{type:'string',max:254},companies:{type:'ids',max:20,pattern:company}},
   memberUpdate:{companies:{type:'ids',max:20,pattern:company,optional:true},disabled:{type:'boolean',optional:true},resetInvitation:{type:'boolean',optional:true}},
+  // Bac à sable de la page Sécurité : contrôles déterministes seulement, aucun appel modèle, rien n'est enregistré.
+  sandbox:{mode:{type:'enum',values:['question','passage','output']},text:{type:'string',min:1,max:4000},passage:{type:'string',max:1800,optional:true}},
 };
 
 // Protection contre le déni de service applicatif : débit par adresse IP sur toute l'API, plus strict pour la connexion.

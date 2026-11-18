@@ -14,6 +14,7 @@ import './styles/themes.css';
 import './styles/auth.css';
 import './styles/account.css';
 import './styles/worksite.css';
+import './styles/security.css';
 import AuthGateway from './AuthGateway.jsx';
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><AuthGateway/></React.StrictMode>);

@@ -3,7 +3,7 @@ import App from './App.jsx';
 import AuthScreen from './AuthScreen.jsx';
 import PrivacyPage,{PrivacyNotice} from './pages/PrivacyPage.jsx';
 import {createAuthClient,isLocalPreviewAllowed} from './auth-client.mjs';
-const previewRoutes=new Set(['home','library','chat','themes','metrics','account','privacy']);
+const previewRoutes=new Set(['home','library','chat','themes','metrics','security','account','privacy']);
 function readRoute(){if(typeof window==='undefined')return 'login';const hash=window.location.hash.slice(1);return hash==='recovery'?'recovery':previewRoutes.has(hash)?'preview':'login';}
 const readHash=()=>typeof window==='undefined'?'':window.location.hash.slice(1);
 export default function AuthGateway(){

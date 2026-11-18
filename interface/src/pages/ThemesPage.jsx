@@ -59,7 +59,7 @@ export default function ThemesPage({themes, chats, session, backend = {}, busy, 
   }
   return <div className="themes-page">
     <header className="simple-heading compact-heading">
-      <div><span className="eyebrow">03 / RÉSUMÉS THÉMATIQUES</span><h1>Un thème.<br/><em>Une nouvelle session.</em></h1><p>Préparez un résumé séparé, avec les points importants des échanges que vous choisissez. Quatre rôles d’agents recherchent, vérifient et rédigent.</p></div>
+      <div><span className="eyebrow">03 / RÉSUMÉS THÉMATIQUES</span><h1>Un thème.<br/><em>Une nouvelle session.</em></h1><p>Préparez un résumé séparé, avec les points importants des échanges que vous choisissez. Quatre rôles d’agents recherchent, complètent par les données de marché (MCP), vérifient et rédigent.</p></div>
       <button className="button-primary" onClick={onNewTheme}><Plus size={16}/>Nouvelle session</button>
     </header>
     {themes.length > 0 && <ol className="theme-session-list">{themes.map((item, index) => {

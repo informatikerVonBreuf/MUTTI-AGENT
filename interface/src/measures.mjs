@@ -53,5 +53,6 @@ export function runMeasures(run) {
     pricing: usage.pricing,
     footprint: usage.footprint,
     byAgent: usage.byAgent || {},
+    byStage: usage.byStage || {},
   };
 }
